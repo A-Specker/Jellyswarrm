@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Now playing</title>
+    <!-- Shared admin UI styles, served by Jellyswarrm at /{ui_route}/resources/. -->
+    <link rel="stylesheet" href="../../resources/pico.min.css">
+    <link rel="stylesheet" href="../../resources/fontawesome/css/all.min.css">
+    <link rel="stylesheet" href="../../resources/custom.css">
+    <script>
+        // Follow the admin UI's dark/light choice (same origin, same localStorage).
+        try {
+            const theme = localStorage.getItem('theme');
+            if (theme) document.documentElement.setAttribute('data-theme', theme);
+        } catch (e) { /* storage blocked: keep "auto" */ }
+    </script>
+    <style>
+        body { padding: 0.5rem 0; background: transparent; }
+        .muted { color: var(--pico-muted-color); }
+        .nowrap { white-space: nowrap; }
+    </style>
+</head>
+<body>
+<main class="container-fluid">
+    <p id="summary" class="muted">Loading...</p>
+    <table id="table" hidden>
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>Title</th>
+                <th>Server</th>
+                <th>Device</th>
+                <th>Position</th>
+            </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+    </table>
+</main>
+
+<script>
+    const REFRESH_MS = 3000;
+
+    function formatTicks(ticks) {
+        if (ticks == null) return '';
+        const total = Math.floor(ticks / 10_000_000);
+        const h = Math.floor(total / 3600);
+        const m = String(Math.floor(total / 60) % 60).padStart(2, '0');
+        const s = String(total % 60).padStart(2, '0');
+        return h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`;
+    }
+
+    // Build cells with textContent only: titles and device names come from clients.
+    function cell(text, className) {
+        const td = document.createElement('td');
+        td.textContent = text ?? '';
+        if (className) td.className = className;
+        return td;
+    }
+
+    function icon(name, label) {
+        const i = document.createElement('i');
+        i.className = `fas ${name}`;
+        i.title = label;
+        i.setAttribute('aria-label', label);
+        return i;
+    }
+
+    function row(playback) {
+        const tr = document.createElement('tr');
+        tr.append(cell(playback.user));
+
+        const title = playback.series_name
+            ? `${playback.series_name}: ${playback.title ?? ''}`
+            : (playback.title ?? playback.item_id);
+        tr.append(cell(title));
+        tr.append(cell(playback.server ?? 'merged', playback.server ? '' : 'muted'));
+        tr.append(cell([playback.device, playback.client].filter(Boolean).join(' · ')));
+
+        const position = cell('', 'nowrap');
+        position.append(playback.is_paused
+            ? icon('fa-pause', 'Paused')
+            : icon('fa-play', 'Playing'));
+        position.append(` ${formatTicks(playback.position_ticks)}`);
+        if (playback.seconds_since_report > 20) {
+            const age = document.createElement('small');
+            age.className = 'muted';
+            age.textContent = ` (no report for ${playback.seconds_since_report}s)`;
+            position.append(age);
+        }
+        tr.append(position);
+        return tr;
+    }
+
+    async function refresh() {
+        const summary = document.getElementById('summary');
+        try {
+            const response = await fetch('api/now-playing', { cache: 'no-store' });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const playbacks = await response.json();
+            document.getElementById('rows').replaceChildren(...playbacks.map(row));
+            document.getElementById('table').hidden = playbacks.length === 0;
+            summary.textContent = playbacks.length === 0
+                ? 'Nobody is watching right now.'
+                : `${playbacks.length} active ${playbacks.length === 1 ? 'playback' : 'playbacks'}`;
+        } catch (error) {
+            summary.textContent = `Could not load playbacks: ${error.message}`;
+        }
+    }
+
+    refresh();
+    setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>

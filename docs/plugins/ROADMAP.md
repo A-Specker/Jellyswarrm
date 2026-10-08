@@ -81,7 +81,7 @@ Plugins must not rely on `playback.stopped` alone (see Steps 5 and 6).
 **Done when:** an admin sees the plugin's page inside the admin UI; a non-admin
 gets `403`.
 
-## Step 5: Viewer plugin
+## Step 5: Viewer plugin (done)
 
 * Separate directory or repository, its own container.
 * Shows who is watching what right now, using `/sessions` on load and
@@ -93,6 +93,10 @@ gets `403`.
 
 **Done when:** the viewer shows live playback from the dev stack inside the admin
 UI.
+
+**Result:** `plugins/viewer/`, Python without dependencies, verified live in the
+dev stack. Its page reuses the admin UI's Pico CSS and Font Awesome from
+`/{ui_route}/resources/` and follows the dark/light setting.
 
 ## Step 6: Hardening
 

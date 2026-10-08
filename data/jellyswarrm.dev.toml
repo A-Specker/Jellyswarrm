@@ -39,3 +39,10 @@ url = "http://localhost:8101"
 name = "Music 2"
 priority = 100
 media_streaming_mode = "Proxy"
+
+# Viewer plugin (plugins/viewer/). Start it with:
+#   PLUGIN_TOKEN=pj2_nIyzXXMEBmS26N-9zVw3D4o9ei_A python plugins/viewer/viewer.py
+[[plugins]]
+name = "viewer"
+url = "http://localhost:8765"
+token = "pj2_nIyzXXMEBmS26N-9zVw3D4o9ei_A"
