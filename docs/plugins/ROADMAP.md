@@ -102,9 +102,10 @@ dev stack. Its page reuses the admin UI's Pico CSS and Font Awesome from
 
 * Unit tests for the manager, API and auth, using `wiremock` like the existing
   tests.
-* A dev-stack scenario with the viewer plugin.
+* A dev-stack scenario with the viewer plugin. *(done: `just plugins`, see
+  `dev/README.md`)*
 * Document `[[plugins]]` in `docs/config.md`, including that builds without
-  the plugin system drop `[[plugins]]` when they rewrite the config.
+  the plugin system drop `[[plugins]]` when they rewrite the config. *(done)*
 * Emit `playback.stopped` (or a new `session.ended`) when a session expires or
   its WebSocket disconnects, so plugins learn about clients that vanish without a
   stop report. Needs one more touch point in `src/sessions/service.rs`.

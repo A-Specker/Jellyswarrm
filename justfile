@@ -1,6 +1,6 @@
 set shell := ["bash", "-uc"]
 
-compose := "docker compose --file dev/docker-compose.yml --profile seerr"
+compose := "docker compose --file dev/docker-compose.yml --profile seerr --profile plugins"
 
 # List the available local development commands.
 default:
@@ -20,6 +20,12 @@ setup: media up
 up: doctor
     {{compose}} up --detach --remove-orphans --wait --wait-timeout 1800 caddy seerr
     @just urls
+
+# Build and start the viewer plugin for a debug build of Jellyswarrm on the host.
+plugins: doctor
+    {{compose}} up --detach --build --wait viewer-plugin
+    @printf 'Viewer plugin: http://localhost:8765 (open it via the Now playing tab in /ui)
+'
 
 # Stop and remove the development containers while preserving all data.
 down:

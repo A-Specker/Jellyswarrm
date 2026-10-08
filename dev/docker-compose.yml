@@ -70,6 +70,34 @@ services:
     networks:
       - jellyfin-dev-net
 
+  # Viewer plugin (plugins/viewer), for a debug build of Jellyswarrm on the host.
+  # Its token matches the [[plugins]] entry in data/jellyswarrm.dev.toml.
+  viewer-plugin:
+    build: ../plugins/viewer
+    profiles:
+      - plugins
+    container_name: jellyswarrm-viewer-plugin
+    environment:
+      PLUGIN_TOKEN: pj2_nIyzXXMEBmS26N-9zVw3D4o9ei_A
+      JELLYSWARRM_URL: http://host.docker.internal:3000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:8765:8765"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null --header \"Authorization: Bearer $$PLUGIN_TOKEN\" http://127.0.0.1:8765/manifest.json || exit 1",
+        ]
+      start_period: 5s
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - jellyfin-dev-net
+
   jellyfin-movies:
     <<: *jellyfin
     container_name: jellyfin-movies

@@ -74,6 +74,29 @@ same playlists automatically.
 Caddy is available at <http://localhost:8000> and exposes `/movies/`,
 `/shows/`, `/music/`, `/movies-2/`, `/shows-2/`, and `/music-2/`.
 
+## Plugins
+
+The [viewer plugin](../plugins/viewer/README.md) shows who is watching what in a
+**Now playing** tab of the admin UI. It is opt-in and not started by `just up`:
+
+```bash
+just plugins
+```
+
+This builds and starts the `viewer-plugin` container on <http://localhost:8765>.
+Debug builds of `jellyswarrm-proxy` register it through the `[[plugins]]` entry
+in `data/jellyswarrm.dev.toml`; its token matches the container's
+`PLUGIN_TOKEN`. If Jellyswarrm was already running, use **Reload configuration**
+in the admin settings. Then log in to <http://localhost:3000/ui> as admin, open
+**Now playing**, and play something as `test` / `test` in a second tab.
+
+The **Plugins** tab shows whether Jellyswarrm reached the plugin. The plugin
+connects back to Jellyswarrm through `host.docker.internal:3000`.
+
+To work on the plugin itself without Docker, stop the container
+(`docker compose --file dev/docker-compose.yml --profile plugins stop viewer-plugin`)
+and run it directly, see its README.
+
 ## Seerr
 
 Run `jellyswarrm-proxy` on the host, then open <http://localhost:5055> and select
