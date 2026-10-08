@@ -80,6 +80,8 @@ services:
     environment:
       PLUGIN_TOKEN: pj2_nIyzXXMEBmS26N-9zVw3D4o9ei_A
       JELLYSWARRM_URL: http://host.docker.internal:3000
+      # Public API key for other apps; dev only.
+      VIEWER_API_KEYS: dev-only-viewer-api-key
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:

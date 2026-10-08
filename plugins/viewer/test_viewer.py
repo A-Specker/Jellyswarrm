@@ -9,7 +9,7 @@ from http.server import ThreadingHTTPServer
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from viewer import MANIFEST, NowPlaying, make_handler, parse_sse
+from viewer import MANIFEST, NowPlaying, make_handler, parse_api_keys, parse_sse
 
 
 class FakeClock:
@@ -174,6 +174,91 @@ class HandlerTest(unittest.TestCase):
         with self.assertRaises(HTTPError) as error:
             self.get("/../viewer.py")
         self.assertEqual(error.exception.code, 404)
+
+    def test_public_api_is_off_without_keys(self):
+        for token in ("secret", None):
+            with self.assertRaises(HTTPError) as error:
+                self.get("/public/v1/now-playing", token=token)
+            self.assertEqual(error.exception.code, 404)
+
+
+APP_KEY = "app-key-0123456789"
+
+
+class PublicApiTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.state = NowPlaying(stale_after=60)
+        cls.state.apply_event("playback.started", playback())
+        cls.server = ThreadingHTTPServer(
+            ("127.0.0.1", 0), make_handler(cls.state, "secret", [APP_KEY, "other-app-key-0123"])
+        )
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.base = f"http://127.0.0.1:{cls.server.server_address[1]}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def request(self, path, token=None, method="GET"):
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        request = Request(self.base + path, headers=headers, method=method)
+        with urlopen(request, timeout=5) as response:
+            return response.status, response.headers, response.read()
+
+    def assert_status(self, code, path, token=None):
+        with self.assertRaises(HTTPError) as error:
+            self.request(path, token=token)
+        self.assertEqual(error.exception.code, code)
+        return error.exception.headers
+
+    def test_returns_playbacks_like_the_page(self):
+        _, headers, body = self.request("/public/v1/now-playing", token=APP_KEY)
+
+        self.assertEqual(headers["Content-Type"], "application/json")
+        self.assertEqual(headers["Access-Control-Allow-Origin"], "*")
+        self.assertEqual(json.loads(body), self.state.snapshot())
+        self.assertEqual(json.loads(body)[0]["user"], "alice")
+
+    def test_accepts_key_as_query_parameter(self):
+        status, _, _ = self.request(f"/public/v1/now-playing?api_key={APP_KEY}")
+        self.assertEqual(status, 200)
+
+    def test_rejects_missing_wrong_and_plugin_credentials(self):
+        for token in (None, "wrong-key-0123456789", "secret"):
+            headers = self.assert_status(401, "/public/v1/now-playing", token=token)
+            # Browsers only show the error to the calling app with this header.
+            self.assertEqual(headers["Access-Control-Allow-Origin"], "*")
+
+    def test_api_key_does_not_open_internal_endpoints(self):
+        for path in ("/api/now-playing", "/manifest.json", "/index.html"):
+            self.assert_status(401, path, token=APP_KEY)
+
+    def test_cors_preflight(self):
+        status, headers, _ = self.request("/public/v1/now-playing", method="OPTIONS")
+
+        self.assertEqual(status, 204)
+        self.assertEqual(headers["Access-Control-Allow-Origin"], "*")
+        self.assertIn("Authorization", headers["Access-Control-Allow-Headers"])
+
+
+class ParseApiKeysTest(unittest.TestCase):
+    def test_splits_and_trims(self):
+        self.assertEqual(
+            parse_api_keys(" a-key-0123456789abc , b-key-0123456789abc,", "token"),
+            ["a-key-0123456789abc", "b-key-0123456789abc"],
+        )
+
+    def test_unset_disables(self):
+        self.assertEqual(parse_api_keys(None, "token"), [])
+        self.assertEqual(parse_api_keys("  ", "token"), [])
+
+    def test_rejects_short_keys_and_the_plugin_token(self):
+        with self.assertRaises(ValueError):
+            parse_api_keys("short", "token")
+        with self.assertRaises(ValueError):
+            parse_api_keys("plugin-token-0123456789", "plugin-token-0123456789")
 
 
 if __name__ == "__main__":

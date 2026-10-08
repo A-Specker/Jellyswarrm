@@ -11,22 +11,31 @@ Configuration (environment variables):
     STALE_AFTER_SECONDS  Treat a playback as ended after this long without a report
                          (default 60). Clients report about every 10 seconds, even
                          while paused, but send no stop when a browser tab is closed.
+    VIEWER_API_KEYS      Comma-separated keys for the public API (one per app). Unset
+                         or empty disables it. Keys need at least 16 characters.
+
+Public API, for other apps (served directly by the viewer, not through Jellyswarrm):
+    GET /public/v1/now-playing   with `Authorization: Bearer <key>` or `?api_key=<key>`.
 """
 
 import hmac
 import json
 import logging
 import os
+import re
 import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 API_VERSION = 1
 STATIC_DIR = Path(__file__).parent / "static"
+PUBLIC_PATH = "/public/v1/now-playing"
+MIN_API_KEY_LENGTH = 16
 
 MANIFEST = {
     "name": "viewer",
@@ -198,40 +207,96 @@ def follow_events(client: Jellyswarrm, state: NowPlaying, stop: threading.Event)
             backoff = min(backoff * 2, 30)
 
 
-def make_handler(state: NowPlaying, token: str):
-    expected = f"Bearer {token}"
+def parse_api_keys(value: str | None, plugin_token: str) -> list[str]:
+    """Keys for the public API from VIEWER_API_KEYS. Raises ValueError for unsafe keys."""
+    keys = [key.strip() for key in (value or "").split(",") if key.strip()]
+    for key in keys:
+        if len(key) < MIN_API_KEY_LENGTH:
+            raise ValueError(
+                f"VIEWER_API_KEYS: every key needs at least {MIN_API_KEY_LENGTH} characters"
+            )
+        if hmac.compare_digest(key.encode(), plugin_token.encode()):
+            raise ValueError("VIEWER_API_KEYS must not contain PLUGIN_TOKEN")
+    return keys
+
+
+def bearer(header: str | None) -> str:
+    """The token of an `Authorization: Bearer <token>` header, or ""."""
+    return header[len("Bearer "):] if header and header.startswith("Bearer ") else ""
+
+
+def make_handler(state: NowPlaying, token: str, api_keys=()):
+    expected = token.encode()
+    keys = [key.encode() for key in api_keys]
     index = (STATIC_DIR / "index.html").read_bytes()
+
+    def is_api_key(candidate: str) -> bool:
+        # Compare against every key so the timing doesn't reveal which one matched.
+        matched = False
+        for key in keys:
+            matched |= hmac.compare_digest(candidate.encode(), key)
+        return matched
 
     class Handler(BaseHTTPRequestHandler):
         server_version = f"jellyswarrm-viewer/{VERSION}"
 
         def do_GET(self):
-            # Only Jellyswarrm knows the token; it adds it when proxying admin requests.
-            if not hmac.compare_digest(self.headers.get("Authorization", ""), expected):
+            url = urlsplit(self.path)
+            if url.path == PUBLIC_PATH:
+                return self._public(url.query)
+            # Only Jellyswarrm knows the plugin token; it adds it when proxying admin requests.
+            presented = bearer(self.headers.get("Authorization")).encode()
+            if not hmac.compare_digest(presented, expected):
                 return self._send(401, b"unauthorized", "text/plain")
-            path = self.path.split("?", 1)[0]
-            if path == "/manifest.json":
+            if url.path == "/manifest.json":
                 self._send_json(MANIFEST)
-            elif path in ("/", "/index.html"):
+            elif url.path in ("/", "/index.html"):
                 self._send(200, index, "text/html; charset=utf-8")
-            elif path == "/api/now-playing":
+            elif url.path == "/api/now-playing":
                 self._send_json(state.snapshot())
             else:
                 self._send(404, b"not found", "text/plain")
 
-        def _send_json(self, value):
-            self._send(200, json.dumps(value).encode(), "application/json")
+        def do_OPTIONS(self):
+            # CORS preflight, so browser apps on other origins can send the key header.
+            if urlsplit(self.path).path != PUBLIC_PATH or not keys:
+                return self._send(404, b"not found", "text/plain")
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Authorization")
+            self.send_header("Access-Control-Max-Age", "86400")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
-        def _send(self, status: int, body: bytes, content_type: str):
+        def _public(self, query: str):
+            """The public API: other apps, authenticated with one of VIEWER_API_KEYS."""
+            if not keys:
+                return self._send(404, b"not found", "text/plain")
+            candidate = bearer(self.headers.get("Authorization"))
+            if not candidate:
+                candidate = parse_qs(query).get("api_key", [""])[0]
+            if not candidate or not is_api_key(candidate):
+                return self._send(401, b"unauthorized", "text/plain", cors=True)
+            self._send_json(state.snapshot(), cors=True)
+
+        def _send_json(self, value, cors: bool = False):
+            self._send(200, json.dumps(value).encode(), "application/json", cors)
+
+        def _send(self, status: int, body: bytes, content_type: str, cors: bool = False):
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            if cors:
+                self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(body)
 
         def log_message(self, format, *args):
-            log.debug("%s - %s", self.address_string(), format % args)
+            # Request lines can carry ?api_key=...; never log the key.
+            message = re.sub(r"(api_key=)[^&\s]*", r"\1***", format % args)
+            log.debug("%s - %s", self.address_string(), message)
 
     return Handler
 
@@ -245,6 +310,10 @@ def main():
     host = os.environ.get("VIEWER_HOST", "0.0.0.0")
     port = int(os.environ.get("VIEWER_PORT", "8765"))
     stale_after = float(os.environ.get("STALE_AFTER_SECONDS", "60"))
+    try:
+        api_keys = parse_api_keys(os.environ.get("VIEWER_API_KEYS"), token)
+    except ValueError as error:
+        raise SystemExit(str(error))
 
     state = NowPlaying(stale_after)
     stop = threading.Event()
@@ -254,8 +323,12 @@ def main():
         daemon=True,
     ).start()
 
-    server = ThreadingHTTPServer((host, port), make_handler(state, token))
+    server = ThreadingHTTPServer((host, port), make_handler(state, token, api_keys))
     log.info("Viewer %s listening on %s:%s, following %s", VERSION, host, port, base_url)
+    if api_keys:
+        log.info("Public API enabled at %s for %d key(s)", PUBLIC_PATH, len(api_keys))
+    else:
+        log.info("Public API disabled (VIEWER_API_KEYS not set)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

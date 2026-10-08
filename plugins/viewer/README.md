@@ -40,6 +40,55 @@ Then reload the configuration in the admin settings or restart Jellyswarrm.
 | `VIEWER_HOST` | `0.0.0.0` | Listen address. |
 | `VIEWER_PORT` | `8765` | Listen port. |
 | `STALE_AFTER_SECONDS` | `60` | When a playback without reports counts as ended. |
+| `VIEWER_API_KEYS` | *(unset)* | Comma-separated keys for the [public API](#public-api), one per app. Unset disables the public API. |
+
+## Public API
+
+Other apps (dashboards, e-ink displays, home automation, ...) can read the
+current playbacks directly from the viewer, without going through Jellyswarrm:
+
+```bash
+curl -H "Authorization: Bearer <key>" http://viewer:8765/public/v1/now-playing
+# or, for clients that can't set headers:
+curl "http://viewer:8765/public/v1/now-playing?api_key=<key>"
+```
+
+The response is the same JSON the **Now playing** page uses, one object per
+playback:
+
+```json
+[
+  {
+    "session_id": "ce4c1959bb1f4416b14a1403fbf971fb",
+    "user": "test",
+    "client": "Jellyfin Web",
+    "device": "Edge Chromium",
+    "title": "Big Buck Bunny",
+    "series_name": null,
+    "item_id": "cc62d033744d4a0594b09ef65ebf9793",
+    "server": "Movies 1",
+    "position_ticks": 281030780,
+    "is_paused": true,
+    "seconds_since_report": 4
+  }
+]
+```
+
+`position_ticks` are 100-nanosecond units (divide by 10,000,000 for seconds).
+`title`, `series_name`, `client`, `device` and `server` can be `null`.
+
+* **Keys:** set `VIEWER_API_KEYS` to one or more keys of at least 16
+  characters, e.g. `openssl rand -base64 32`. Give each app its own key, so you
+  can revoke one by removing it and restarting the viewer. Without keys the
+  endpoint answers `404`.
+* **Separate from the plugin token:** API keys only work on `/public/...`, and
+  the plugin token doesn't work there. A leaked API key gives no access to
+  Jellyswarrm.
+* **Browsers:** the endpoint sends CORS headers, so web apps on other origins
+  can call it.
+* **Privacy:** the API shows who is watching what. The app must be able to
+  reach the viewer's port; don't expose it to the internet without HTTPS and a
+  reverse proxy in front of it.
 
 ## Running
 
