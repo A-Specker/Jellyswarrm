@@ -12,7 +12,7 @@ mod test_support;
 mod ui;
 
 pub use api::router;
-pub use config::PluginConfig;
+pub use config::{deserialize_plugins, PluginConfig};
 pub use events::publish_playback;
 pub use manager::{PluginManager, UiTab};
 pub use ui::router as ui_router;

@@ -37,7 +37,7 @@ The table below lists all available configuration options:
 | `auto_create_users_on_login` | `true` | `JELLYSWARRM_AUTO_CREATE_USERS_ON_LOGIN` | Automatically create local users on successful upstream login. |
 | `merge_libraries` | `true` | `JELLYSWARRM_MERGE_LIBRARIES` | Merge libraries with matching names across servers into virtual libraries. |
 | `deduplicate_media` | `false` | `JELLYSWARRM_DEDUPLICATE_MEDIA` | Collapse the same movie or show (series/season/episode) on multiple servers into one item whose versions are served by the different hosts (Jellyfin-style linked versions; Jellyfin v12 adds multi-versions for episodes). Legacy key `deduplicate_movies` / env `JELLYSWARRM_DEDUPLICATE_MOVIES` still loads. |
-| `plugins` | `[]` | *(config file only)* | External plugin services (`name`, `url`, `token`, `enabled`). See [Plugins](#plugins). |
+| `plugins` | `[]` | `JELLYSWARRM_PLUGINS` *(JSON list)* | External plugin services (`name`, `url`, `token`, `enabled`). See [Plugins](#plugins). |
 
 ---
 
@@ -67,6 +67,38 @@ enabled = true                   # optional, default true
 | `url` | yes | Base URL of the plugin service. Jellyswarrm loads `{url}/manifest.json` from it. |
 | `token` | yes | Shared secret. The plugin sends it to the [plugin API](plugins/plugin-api-v1.md#authentication), and Jellyswarrm sends it to the plugin. Use a long random value, for example `openssl rand -base64 32`. |
 | `enabled` | no | `false` keeps the entry but neither loads the plugin nor accepts its token. |
+
+### Without a config file: `JELLYSWARRM_PLUGINS`
+
+When you can only set environment variables, for example in Docker Compose, put
+the same list into `JELLYSWARRM_PLUGINS` as JSON:
+
+```yaml
+services:
+  jellyswarrm:
+    environment:
+      - 'JELLYSWARRM_PLUGINS=[{"name":"viewer","url":"http://viewer:8765","token":"${VIEWER_TOKEN}"}]'
+
+  viewer:
+    environment:
+      - PLUGIN_TOKEN=${VIEWER_TOKEN}
+      - JELLYSWARRM_URL=http://jellyswarrm:3000
+```
+
+With `VIEWER_TOKEN=...` in a `.env` file next to the compose file, both services
+get the same token. Quote the whole entry in single quotes as above, so YAML keeps
+the JSON intact.
+
+* `JELLYSWARRM_PLUGINS` **replaces** a `[[plugins]]` list from the config file;
+  the two are not merged. An empty value means no plugins.
+* Invalid JSON stops Jellyswarrm at startup with an error naming the variable.
+* Docker only applies environment changes when the container is recreated
+  (`docker compose up -d`), so **Reload configuration** doesn't pick them up.
+* When Jellyswarrm writes its config file, for example on first start to store
+  the `session_key`, it also writes these plugins, including their tokens, as
+  `[[plugins]]` into the data volume, like it does with `JELLYSWARRM_PASSWORD`.
+
+### Status
 
 Changes take effect after a restart or after **Reload configuration** in the
 admin settings. The **Plugins** tab in the admin UI shows each plugin's version

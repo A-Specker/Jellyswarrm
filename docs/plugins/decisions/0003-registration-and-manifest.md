@@ -14,6 +14,11 @@ offer (for example a UI page). The admin should stay in control of what runs.
   `preconfigured_servers` pattern (`PreconfiguredServer` in `src/config.rs`).
 * Changes are picked up on startup and by the existing config reload in the
   admin settings (`reload_config` in `src/ui/admin/settings.rs`).
+* For deployments that only control environment variables (Docker Compose), the
+  same list can be given as JSON in `JELLYSWARRM_PLUGINS`. Environment variables
+  can't hold a list, and Jellyswarrm's `_` separator for nested keys makes one
+  variable per field fragile. The JSON variable replaces the file's list, like
+  every other environment override.
 * Each plugin describes itself in a **manifest**, `GET {url}/manifest.json`, with
   `name`, `version`, `api_version` and an optional `ui` block.
 * A plugin whose `api_version` is not supported is disabled and a warning is

@@ -32,6 +32,8 @@ token = "<random secret>"
 ```
 
 Then reload the configuration in the admin settings or restart Jellyswarrm.
+Without access to the config file, use the `JELLYSWARRM_PLUGINS` environment
+variable instead, see [Running](#running).
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -92,16 +94,32 @@ playback:
 
 ## Running
 
-With Docker Compose, next to Jellyswarrm:
+With Docker Compose, next to Jellyswarrm, configured only through environment
+variables. Put the secrets into a `.env` file next to the compose file:
+
+```bash
+# .env
+VIEWER_TOKEN=<random secret, e.g. openssl rand -base64 32>
+VIEWER_API_KEYS=<one key per app that uses the public API>
+```
 
 ```yaml
 services:
+  jellyswarrm:
+    # ... your Jellyswarrm build with the plugin system ...
+    environment:
+      - 'JELLYSWARRM_PLUGINS=[{"name":"viewer","url":"http://viewer:8765","token":"${VIEWER_TOKEN}"}]'
+
   viewer:
     build: plugins/viewer
     restart: unless-stopped
     environment:
-      - PLUGIN_TOKEN=<random secret>
+      - PLUGIN_TOKEN=${VIEWER_TOKEN}
       - JELLYSWARRM_URL=http://jellyswarrm:3000
+      - VIEWER_API_KEYS=${VIEWER_API_KEYS}
+    # Only needed if apps outside this compose project use the public API:
+    # ports:
+    #   - "8765:8765"
 ```
 
 For local development (Python 3.11 or newer), against the dev stack and a debug

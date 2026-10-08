@@ -340,7 +340,11 @@ pub struct AppConfig {
     pub deduplicate_media: bool,
 
     /// External plugin services, see `docs/plugins/plugin-api-v1.md`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "crate::plugins::deserialize_plugins"
+    )]
     pub plugins: Vec<crate::plugins::PluginConfig>,
 }
 
