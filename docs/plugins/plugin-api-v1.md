@@ -152,18 +152,36 @@ by proxies in between.
 
 ## UI pages
 
-If the manifest has a `ui` block, Jellyswarrm:
+If the manifest has a `ui` block and the plugin's status is `Running`, Jellyswarrm:
 
-* adds a tab with `ui.title` to the admin UI, and
-* proxies `/{ui_route}/plugins/{name}/{path}` to `{url}/{path}`.
+* adds a tab with `ui.title` and `ui.icon` to the admin UI. The tab shows the
+  plugin's `ui.entry` page in an iframe.
+* proxies `/{ui_route}/plugins/{name}/{path}` (any method, with query string and
+  body) to `{url}/{path}`.
+
+Requests to the plugin carry:
+
+* `Authorization: Bearer <token>`, the plugin's own token.
+* `X-Forwarded-Prefix: /{ui_route}/plugins/{name}`, in case the plugin needs to
+  build absolute links.
+* All other request headers except `Cookie`, `Authorization`, `Host` and
+  hop-by-hop headers.
 
 Rules for plugin pages:
 
-* Only logged-in Jellyswarrm admins can reach them.
+* Only logged-in Jellyswarrm admins can reach them; other users get `403`.
 * Use **relative URLs** for assets and API calls, because pages are served below
   `/{ui_route}/plugins/{name}/`.
-* The admin's Jellyswarrm session cookie is **not** forwarded. A plugin page that
-  needs data calls its own backend, which calls the plugin API with its token.
+* The admin's Jellyswarrm session cookie is **not** forwarded, and `Set-Cookie`
+  headers from the plugin are dropped. A plugin page that needs data calls its
+  own backend, which calls the plugin API with its token.
+* Request bodies are limited to 10 MiB.
+* **Plugin pages are trusted code.** They run on the same origin as the admin
+  UI, so their JavaScript can use the admin's browser session. Only configure
+  plugins you trust as much as Jellyswarrm itself.
+
+A **Plugins** tab in the admin UI lists all configured plugins with version and
+status, including why a plugin is unreachable, invalid or incompatible.
 
 ## Versioning
 

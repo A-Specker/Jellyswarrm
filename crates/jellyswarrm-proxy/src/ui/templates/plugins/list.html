@@ -1,0 +1,40 @@
+<header>
+    <h1>Plugins</h1>
+    <h3>External plugin services configured in <code>jellyswarrm.toml</code>.</h3>
+</header>
+
+<section>
+    {% if plugins.is_empty() %}
+    <p>No plugins configured. Add a <code>[[plugins]]</code> entry to the configuration and reload it in Settings.</p>
+    {% else %}
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Version</th>
+                <th>Status</th>
+                <th>URL</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for plugin in plugins %}
+            <tr>
+                <td>{{ plugin.name }}</td>
+                <td>{% if let Some(version) = plugin.version %}{{ version }}{% else %}-{% endif %}</td>
+                <td>
+                    {% if plugin.ok %}
+                    <span style="color: #28a745;"><i class="fas fa-check-circle"></i> {{ plugin.status }}</span>
+                    {% else %}
+                    <span style="color: var(--pico-muted-color);"><i class="fas fa-circle-exclamation"></i> {{ plugin.status }}</span>
+                    {% endif %}
+                    {% if let Some(detail) = plugin.detail %}
+                    <br><small style="color: var(--pico-muted-color);">{{ detail }}</small>
+                    {% endif %}
+                </td>
+                <td><code>{{ plugin.url }}</code></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</section>

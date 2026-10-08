@@ -30,6 +30,8 @@ pub struct AdminIndexTemplate {
     pub ui_route: String,
     pub root: Option<String>,
     pub jellyfin_ui_version: Option<JellyfinUiVersion>,
+    pub has_plugins: bool,
+    pub plugin_tabs: Vec<crate::plugins::UiTab>,
 }
 
 /// Root/home page
@@ -59,6 +61,8 @@ pub async fn index(
             ui_route: state.get_ui_route().await,
             root: state.get_url_prefix().await,
             jellyfin_ui_version: JELLYFIN_UI_VERSION.clone(),
+            has_plugins: !state.plugins.plugins().await.is_empty(),
+            plugin_tabs: state.plugins.ui_tabs().await,
         };
 
         match template.render() {

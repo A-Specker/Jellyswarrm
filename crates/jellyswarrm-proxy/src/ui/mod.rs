@@ -160,6 +160,7 @@ pub fn ui_routes() -> axum::Router<AppState> {
         .route("/settings/form", get(admin::settings::settings_form))
         .route("/settings/save", post(admin::settings::save_settings))
         .route("/settings/reload", post(admin::settings::reload_config))
+        .merge(crate::plugins::ui_router())
         .route_layer(middleware::from_fn(require_admin));
 
     Router::new()

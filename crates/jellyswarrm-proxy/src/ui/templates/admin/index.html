@@ -27,6 +27,22 @@
         Settings
     </a>
 </li>
+{% if has_plugins %}
+<li>
+    <a href="#" hx-get="/{{ ui_route }}/plugins" hx-target="#main-content" class="nav-link">
+        <i class="fas fa-puzzle-piece" style="margin-right: 0.25rem;"></i>
+        Plugins
+    </a>
+</li>
+{% endif %}
+{% for tab in plugin_tabs %}
+<li>
+    <a href="#" hx-get="/{{ ui_route }}/plugins/{{ tab.name }}" hx-target="#main-content" class="nav-link">
+        <i class="fas {{ tab.icon }}" style="margin-right: 0.25rem;"></i>
+        {{ tab.title }}
+    </a>
+</li>
+{% endfor %}
 
 {% endblock %}
 

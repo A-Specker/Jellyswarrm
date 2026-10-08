@@ -29,8 +29,6 @@ pub struct Manifest {
     pub ui: Option<ManifestUi>,
 }
 
-// Read by the admin UI integration (roadmap step 4).
-#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct ManifestUi {
     pub title: String,
@@ -58,6 +56,20 @@ pub struct Plugin {
     pub config: PluginConfig,
     pub manifest: Option<Manifest>,
     pub status: PluginStatus,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UiTab {
+    pub name: String,
+    pub title: String,
+    pub icon: String,
+    /// Start page, relative to the plugin's base URL.
+    pub entry: String,
+}
+
+pub struct UiTarget {
+    pub url: url::Url,
+    pub token: crate::encryption::Password,
 }
 
 /// Tracks the configured plugins and their manifests. Plugins never get access
@@ -106,10 +118,47 @@ impl PluginManager {
         *self.plugins.write().await = plugins;
     }
 
-    // Read by the plugin API and admin UI (roadmap steps 2 and 4).
-    #[allow(dead_code)]
     pub async fn plugins(&self) -> Vec<Plugin> {
         self.plugins.read().await.clone()
+    }
+
+    /// Admin UI tabs of all usable plugins that declare a UI.
+    pub async fn ui_tabs(&self) -> Vec<UiTab> {
+        self.plugins
+            .read()
+            .await
+            .iter()
+            .filter(|plugin| plugin.status == PluginStatus::Ok)
+            .filter_map(|plugin| {
+                let ui = plugin.manifest.as_ref()?.ui.as_ref()?;
+                Some(UiTab {
+                    name: plugin.config.name.clone(),
+                    title: ui.title.clone(),
+                    icon: ui
+                        .icon
+                        .clone()
+                        .unwrap_or_else(|| "fa-puzzle-piece".to_string()),
+                    entry: ui.entry.trim_start_matches('/').to_string(),
+                })
+            })
+            .collect()
+    }
+
+    /// Where to proxy UI requests for plugin `name`, if it is usable and has a UI.
+    pub async fn ui_target(&self, name: &str) -> Option<UiTarget> {
+        self.plugins
+            .read()
+            .await
+            .iter()
+            .find(|plugin| {
+                plugin.config.name == name
+                    && plugin.status == PluginStatus::Ok
+                    && plugin.manifest.as_ref().is_some_and(|m| m.ui.is_some())
+            })
+            .map(|plugin| UiTarget {
+                url: plugin.config.url.clone(),
+                token: plugin.config.token.clone(),
+            })
     }
 
     /// Name of the plugin owning `token`, if that plugin may use the plugin API.

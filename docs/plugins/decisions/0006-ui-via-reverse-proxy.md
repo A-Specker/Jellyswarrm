@@ -18,8 +18,13 @@ with askama templates and htmx under `/{ui_route}`, protected by a login and the
   plugin's token (see [0004](0004-auth-tokens.md)).
 * For every plugin whose manifest has a `ui` block, the admin page gets a **tab**
   with `ui.title` and `ui.icon`, rendered in `templates/admin/index.html` through
-  `AdminIndexTemplate` (`src/ui/root.rs`).
+  `AdminIndexTemplate` (`src/ui/root.rs`). The tab loads an htmx fragment with an
+  **iframe** on the proxied entry page. Plugin pages are full HTML apps, so
+  inserting them into the admin page directly would break their scripts, styles
+  and relative URLs.
+* `Set-Cookie` headers from plugins are dropped.
 * Plugin pages must use **relative URLs**.
+* Code lives in `src/plugins/ui.rs`, templates in `src/ui/templates/plugins/`.
 
 ## Alternatives considered
 
@@ -34,7 +39,13 @@ with askama templates and htmx under `/{ui_route}`, protected by a login and the
 
 * Plugins don't need their own login and don't have to be reachable from the
   internet; only Jellyswarrm needs to reach them.
-* A plugin page runs on the same origin as the admin UI. This is why the session
-  cookie is stripped, and why only configured plugins are proxied.
+* A plugin page runs on the same origin as the admin UI. Stripping the cookie
+  keeps the admin session away from the plugin's server, but the plugin's
+  JavaScript in the browser can still use the admin session, because the browser
+  attaches the cookie itself. **A plugin UI is therefore trusted like admin code.**
+  A sandboxed iframe would prevent this, but then the browser wouldn't send the
+  login cookie for the plugin's own assets either, so they would fail the admin
+  check. This can be revisited with per-plugin signed URLs if untrusted plugins
+  ever become a goal.
 * Plugins that use absolute paths (`/assets/app.js`) break below the prefix.
   This is documented in the [Plugin API](../plugin-api-v1.md#ui-pages).
