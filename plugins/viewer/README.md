@@ -94,7 +94,9 @@ playback:
 
 ## Running
 
-With Docker Compose, next to Jellyswarrm, configured only through environment
+For a complete, tested setup including building Jellyswarrm with the plugin
+system, follow [Deploying with Docker Compose](../../docs/plugins/docker-compose.md).
+The short version: with Docker Compose, next to Jellyswarrm, configured only through environment
 variables. Put the secrets into a `.env` file next to the compose file:
 
 ```bash

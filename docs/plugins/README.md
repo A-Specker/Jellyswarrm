@@ -71,6 +71,7 @@ flowchart LR
 
 ## Documents
 
+* [Deploying with Docker Compose](docker-compose.md): step-by-step setup with the viewer plugin.
 * [Plugin API v1](plugin-api-v1.md): the contract for plugin authors.
 * [Roadmap](ROADMAP.md): implementation steps and acceptance criteria.
 * Decisions:

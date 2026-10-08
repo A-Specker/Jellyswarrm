@@ -70,6 +70,9 @@ enabled = true                   # optional, default true
 
 ### Without a config file: `JELLYSWARRM_PLUGINS`
 
+For a complete Docker Compose setup, see
+[Deploying plugins with Docker Compose](plugins/docker-compose.md).
+
 When you can only set environment variables, for example in Docker Compose, put
 the same list into `JELLYSWARRM_PLUGINS` as JSON:
 
