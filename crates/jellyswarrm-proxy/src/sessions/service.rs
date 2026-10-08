@@ -202,17 +202,23 @@ impl ClientSessionService {
     }
 
     pub async fn for_user(&self, user_id: &str) -> Vec<ClientSession> {
+        self.live(|s| s.user_id == user_id).await
+    }
+
+    /// Live sessions of all users.
+    pub async fn all(&self) -> Vec<ClientSession> {
+        self.live(|_| true).await
+    }
+
+    /// Drop expired sessions, then return the matching ones, most recent first.
+    async fn live(&self, filter: impl Fn(&ClientSession) -> bool) -> Vec<ClientSession> {
         let now = Utc::now();
         let mut entries = self.entries.write().await;
         entries.retain(|id, entry| {
             self.transport.is_connected(id)
                 || now - entry.last_activity < Duration::seconds(SESSION_TTL_SECONDS)
         });
-        let mut result: Vec<_> = entries
-            .values()
-            .filter(|s| s.user_id == user_id)
-            .cloned()
-            .collect();
+        let mut result: Vec<_> = entries.values().filter(|s| filter(s)).cloned().collect();
         result.sort_by(|a, b| b.last_activity.cmp(&a.last_activity).then(a.id.cmp(&b.id)));
         result
     }

@@ -223,6 +223,7 @@ pub async fn observe_playback(state: &AppState, request: &reqwest::Request) {
             &report,
         )
         .await;
+    crate::plugins::publish_playback(state, &id, action, &report).await;
 }
 
 /// Reset local client connections together with an administrative session reset.

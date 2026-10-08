@@ -5,13 +5,13 @@ Code lives in `crates/jellyswarrm-proxy/src/plugins/` unless a step says
 otherwise. Core changes are limited to the touch points listed at the end and
 follow [0007 Fork hygiene](decisions/0007-fork-hygiene.md).
 
-## Step 0: Design docs
+## Step 0: Design docs (done)
 
 Goals, decisions and the API contract in `docs/plugins/`.
 
 **Done when:** the docs are reviewed and agreed.
 
-## Step 1: Skeleton
+## Step 1: Skeleton (done)
 
 * `src/plugins/{mod.rs, config.rs, manager.rs}`.
 * `PluginConfig` (`name`, `url`, `token`, `enabled`) and a `plugins` list in
@@ -25,7 +25,7 @@ Goals, decisions and the API contract in `docs/plugins/`.
 **Done when:** a configured plugin's manifest is loaded and its status is logged;
 without `[[plugins]]`, Jellyswarrm behaves exactly as before.
 
-## Step 2: Read API
+## Step 2: Read API (implemented, dev-stack check open)
 
 * `plugins::router()` merged into the app, like `health::router()` in
   `src/main.rs`.
@@ -41,7 +41,7 @@ without `[[plugins]]`, Jellyswarrm behaves exactly as before.
 **Done when:** `curl -H "Authorization: Bearer …" /plugin-api/v1/sessions` shows a
 session that is playing in the dev stack, and requests without a token get `401`.
 
-## Step 3: Events
+## Step 3: Events (implemented, dev-stack check open)
 
 * `PluginEvent` enum and a `tokio::sync::broadcast` channel in the
   `PluginManager`.

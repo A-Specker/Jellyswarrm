@@ -51,6 +51,9 @@ directions:
 
 * **Plugin → Jellyswarrm:** every request to the plugin API sends
   `Authorization: Bearer <token>`. Requests without a valid token get `401`.
+  The token is accepted while the plugin is enabled and its manifest is valid,
+  or while the manifest couldn't be fetched yet (the plugin may start after
+  Jellyswarrm). Plugins that are disabled, invalid or incompatible get `401`.
 * **Jellyswarrm → plugin:** manifest and UI requests carry the same header, so a
   plugin can reject requests that don't come from Jellyswarrm.
 
@@ -74,6 +77,7 @@ Active client sessions across all users.
       "item_id": "6139f018...",
       "name": "Big Buck Bunny",
       "type": "Movie",
+      "series_name": null,
       "server": { "id": "1", "name": "Movies 1" },
       "position_ticks": 1234567890,
       "is_paused": false
@@ -83,7 +87,13 @@ Active client sessions across all users.
 ```
 
 `now_playing` is `null` when the session is idle. Item IDs are Jellyswarrm's
-virtual IDs, the same IDs clients see.
+virtual IDs, the same IDs clients see. `name`, `type` and `series_name` are
+`null` when Jellyswarrm hasn't seen the item's metadata yet. `server` is `null`
+when the item has no single owning server, for example a merged item with
+versions on several servers.
+
+Sessions expire 30 minutes after their last activity unless the client is still
+connected over WebSocket.
 
 ### `GET /plugin-api/v1/users`
 
@@ -108,19 +118,37 @@ payload:
 
 ```text
 event: playback.started
-data: {"session_id":"c0ffee...","user":{"id":"b077ff2c...","name":"test"},"item_id":"6139f018...","server":{"id":"1","name":"Movies 1"},"at":"2026-10-08T10:15:00Z"}
+data: {"session_id":"c0ffee...","user":{"id":"b077ff2c...","name":"test"},"item_id":"6139f018...","server":{"id":"1","name":"Movies 1"},"position_ticks":0,"is_paused":false,"at":"2026-10-08T10:15:00Z"}
 ```
 
 | Event | Sent when |
 |---|---|
 | `playback.started` | A client reports that playback started. |
-| `playback.progress` | A client reports progress (typically every few seconds). Includes `position_ticks` and `is_paused`. |
+| `playback.progress` | A client reports progress (typically every few seconds), including pause and resume. |
 | `playback.stopped` | A client reports that playback stopped. |
+| `stream.lagged` | This subscriber fell behind and missed events. `data` is `{"missed": <count>}`. |
 
-Delivery is **best effort**. If a plugin reads too slowly or is disconnected, it
-misses events. Plugins that need a consistent picture combine the stream with
-`GET /plugin-api/v1/sessions`, for example by reloading the session list after
-reconnecting.
+All `playback.*` events have the same fields:
+
+| Field | Meaning |
+|---|---|
+| `session_id` | The session, as in `GET /plugin-api/v1/sessions`. |
+| `user` | `id` and `name` of the Jellyswarrm user. |
+| `item_id` | Virtual item ID. Names and types are available from `/sessions`. |
+| `server` | The owning server, or `null` for items without a single owner. |
+| `position_ticks` | Position from the client's report, or `null` if the client didn't send one. |
+| `is_paused` | Paused state from the client's report, `false` if missing. |
+| `at` | When Jellyswarrm received the report (UTC). |
+
+Delivery is **best effort**. Jellyswarrm buffers up to 256 events per
+subscriber; a plugin that reads more slowly misses events and receives one
+`stream.lagged` event instead. A disconnected plugin misses everything until it
+reconnects. Plugins that need a consistent picture combine the stream with
+`GET /plugin-api/v1/sessions`, by reloading the session list after connecting,
+reconnecting, or a `stream.lagged` event.
+
+The stream sends keep-alive comments regularly, so idle connections aren't closed
+by proxies in between.
 
 ## UI pages
 

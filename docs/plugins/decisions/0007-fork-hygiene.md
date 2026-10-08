@@ -14,9 +14,6 @@ we change in shared files is a possible merge conflict on the next rebase.
   [roadmap](../ROADMAP.md#core-touch-points): module declaration, one
   `AppState` field, router merge, config field, config reload, one publish call,
   and the admin UI tabs.
-* Each touch point gets a `// plugins:` comment (or `{# plugins: #}` in
-  templates), so `git grep "plugins:"` lists them all and conflicts are easy to
-  recognise.
 * Touch points follow existing patterns, for example `health::router()` for
   mounting routes, so they look like upstream code.
 * No database migrations for plugins (see [0003](0003-registration-and-manifest.md)).

@@ -41,6 +41,7 @@ mod media_catalog;
 mod media_identity;
 mod media_storage_service;
 mod models;
+mod plugins;
 mod processors;
 mod proxy_headers;
 mod request_preprocessing;
@@ -102,6 +103,7 @@ pub struct AppState {
     pub federated_users: Arc<FederatedUserService>,
     pub syncplay: Arc<SyncPlayService>,
     pub client_sessions: Arc<sessions::ClientSessionService>,
+    pub plugins: Arc<plugins::PluginManager>,
 }
 
 impl AppState {
@@ -122,6 +124,7 @@ impl AppState {
         ));
 
         let transport = sessions::transport::ConnectionHub::default();
+        let plugins = Arc::new(plugins::PluginManager::new(reqwest_client.clone()));
         Self {
             reqwest_client,
             streaming_reqwest_client,
@@ -136,6 +139,7 @@ impl AppState {
             federated_users,
             syncplay: Arc::new(SyncPlayService::with_transport(transport.clone())),
             client_sessions: Arc::new(sessions::ClientSessionService::new(transport)),
+            plugins,
         }
     }
 
@@ -520,6 +524,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     quick_connect::QuickConnectStorage::start_cleanup_task(app_state.quick_connect.clone());
 
+    {
+        let plugins = app_state.plugins.clone();
+        let configs = loaded_config.plugins.clone();
+        tokio::spawn(async move { plugins.load(&configs).await });
+    }
+
     let session_store = SqliteStore::new(pool.clone());
     session_store.migrate().await?;
 
@@ -544,6 +554,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let auth_layer = AuthManagerLayerBuilder::new(backend, session_layer).build();
 
     let ui_route = loaded_config.ui_route.to_string();
+    let plugin_state = app_state.clone();
 
     let app = lowercase_routes! {
         Router::new()
@@ -819,7 +830,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .layer(auth_layer)
             .with_state(app_state)
     }
-    .route("/GetUTCTime", get(handlers::syncplay::get_utc_time));
+    .route("/GetUTCTime", get(handlers::syncplay::get_utc_time))
+    // Outside the cookie and API-key layers: plugins authenticate with their own token.
+    .merge(plugins::router(plugin_state));
 
     // Create socket address
     let addr = match format!("{}:{}", loaded_config.host, loaded_config.port).parse::<SocketAddr>()

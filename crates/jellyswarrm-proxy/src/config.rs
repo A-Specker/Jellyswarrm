@@ -338,6 +338,10 @@ pub struct AppConfig {
         alias = "deduplicate_movies"
     )]
     pub deduplicate_media: bool,
+
+    /// External plugin services, see `docs/plugins/plugin-api-v1.md`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plugins: Vec<crate::plugins::PluginConfig>,
 }
 
 impl fmt::Debug for AppConfig {
@@ -371,6 +375,7 @@ impl fmt::Debug for AppConfig {
                 &self.auto_create_users_on_login,
             )
             .field("deduplicate_media", &self.deduplicate_media)
+            .field("plugins", &self.plugins)
             .finish()
     }
 }

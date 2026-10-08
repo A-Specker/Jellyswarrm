@@ -123,6 +123,7 @@ pub async fn reload_config(State(state): State<AppState>) -> impl IntoResponse {
                 .into_response();
         }
     };
+    let plugin_configs = new_cfg.plugins.clone();
     {
         let mut cfg = state.config.write().await;
         if cfg.session_key != new_cfg.session_key {
@@ -130,6 +131,7 @@ pub async fn reload_config(State(state): State<AppState>) -> impl IntoResponse {
         }
         *cfg = new_cfg;
     }
+    state.plugins.load(&plugin_configs).await;
     Html("<div class=\"alert\">Configuration reloaded</div>").into_response()
 }
 
