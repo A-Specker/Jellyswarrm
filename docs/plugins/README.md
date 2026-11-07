@@ -74,6 +74,7 @@ flowchart LR
 * [Deploying with Docker Compose](docker-compose.md): step-by-step setup with the viewer plugin.
 * [Plugin API v1](plugin-api-v1.md): the contract for plugin authors.
 * [Roadmap](ROADMAP.md): implementation steps and acceptance criteria.
+* [Proposal v2](proposal-v2.md): a full plugin system with core-owned extension points.
 * Decisions:
   * [0001 External plugins](decisions/0001-external-plugins.md)
   * [0002 PluginManager as a bridge](decisions/0002-pluginmanager-as-bridge.md)
@@ -82,6 +83,7 @@ flowchart LR
   * [0005 Events via Server-Sent Events](decisions/0005-events-via-sse.md)
   * [0006 Plugin UI via reverse proxy](decisions/0006-ui-via-reverse-proxy.md)
   * [0007 Fork hygiene](decisions/0007-fork-hygiene.md)
+  * [0008 Core-owned extension layer](decisions/0008-core-owned-extension-layer.md) (proposed)
 
 ## Glossary
 
