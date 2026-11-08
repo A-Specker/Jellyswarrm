@@ -36,6 +36,35 @@ The v1 constraint has these costs:
 * **Stable and versioned.** Plugins depend on a published contract, never on
   internal types.
 
+## Concepts
+
+The extension points are **building blocks, not plugin types**. One plugin can
+use several of them; the viewer, for example, uses the event bus, the Query API
+and a UI page. A plugin lists the blocks it uses, and the permissions it needs,
+in its manifest.
+
+| Block | Who starts it | Does the core wait? | Can it change behaviour? | Example |
+|---|---|---|---|---|
+| Event bus | Core | No | No, it is told what happened | Viewer shows who is watching |
+| Query API | Plugin | – | No, read only | List servers, users, sessions, movies |
+| Command API | Plugin | – | Yes, through the core's normal actions | Send a message to a client, stop playback |
+| Hook chain | Core, on client requests | Yes, with a time limit | Yes, it changes requests and responses | Hide movies above PG-13 for kids |
+| Providers | Core | Yes | Yes, the core uses the plugin's answer | Log in with OIDC; pick which server plays a movie |
+| Scheduled tasks | Host, on a timer | No | Whatever the job does through the APIs | Nightly cleanup |
+
+* **Event bus:** the core publishes events at chosen moments ("playback
+  started", "session ended", "login failed"), not on every function call.
+  Plugins get a curated, stable payload, never the raw function arguments.
+* **Query API and Command API:** called by the plugin's backend with its token,
+  not by the admin's browser. Both cover system data (servers, users, sessions)
+  and media data (libraries, items in Jellyswarrm's merged view). Commands go
+  through the same logic and permission checks as the admin UI.
+* **Hook chain vs. providers:** a hook can rewrite anything in a request or
+  response. A provider answers one narrow, typed question the core asks. Use a
+  provider when one fits; it is safer and easier to write.
+* **Providers vs. events:** for an event, the core doesn't wait. For a
+  provider, the core waits for the answer and uses it.
+
 ## Architecture
 
 ```mermaid
@@ -138,6 +167,7 @@ authors than raw hooks:
 | `AuthProvider` | OIDC or LDAP login mapped to Jellyswarrm users. |
 | `LibraryProvider` | Virtual collections, per-user filtering. |
 | `MetadataEnricher` | Add ratings or tags to items. |
+| `ServerSelector` | Pick which server plays an item that exists on several servers, for example by priority, load or location. |
 
 Inside the core, each provider is a trait with a no-op default. A plugin
 adapter implements it by calling the remote plugin.
