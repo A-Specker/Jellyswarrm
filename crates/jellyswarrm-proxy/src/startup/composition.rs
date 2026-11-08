@@ -47,6 +47,7 @@ pub(super) fn adapter_state(
     let url_prefix = adapter_paths.url_prefix();
     let config = Arc::new(tokio::sync::RwLock::new(config));
     let settings = SettingsView::new(config.clone());
+    let plugin_credentials = crate::config::PluginCredentials::new(config.clone());
     let configuration = crate::config::service::ConfigurationService::new(config, paths);
     let playback_registry = Arc::new(PlaybackRegistry::new());
     let urls = UrlProcessor::new(
@@ -145,6 +146,13 @@ pub(super) fn adapter_state(
         configuration,
         paths: adapter_paths,
     };
+    let plugins = application::plugins::PluginQueries::new(
+        plugin_credentials,
+        server_storage.clone(),
+        user_authorization.clone(),
+        client_sessions.clone(),
+        virtual_library_service.clone(),
+    );
     let media = application::media_services::MediaServices {
         reqwest_client: clients.api,
         streaming_reqwest_client: clients.streaming,
@@ -168,5 +176,6 @@ pub(super) fn adapter_state(
         management,
         settings_state,
         quick_connect,
+        plugins,
     )
 }

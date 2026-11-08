@@ -1,6 +1,9 @@
 //! Startup resource inputs versus the explicit set of dynamically publishable
 //! values. AppConfig remains the persisted/backwards-compatible file envelope.
-use super::{AppConfig, DebugUser, MediaStreamingMode, PreconfiguredServer, UrlSegment};
+use super::{
+    plugins::PluginIdentity, AppConfig, DebugUser, MediaStreamingMode, PreconfiguredServer,
+    UrlSegment,
+};
 use crate::domain::security::Password;
 
 /// Immutable, scoped administrator credentials, without configuration mutation.
@@ -75,6 +78,21 @@ impl SettingsView {
             timeout: config.timeout,
             url_prefix: config.url_prefix.clone(),
         }
+    }
+}
+
+/// Authenticate plugin API callers against the live plugin list, so a config
+/// reload adds, removes or disables plugins without a restart. Tokens never
+/// leave this view.
+#[derive(Clone)]
+pub(crate) struct PluginCredentials(std::sync::Arc<tokio::sync::RwLock<AppConfig>>);
+
+impl PluginCredentials {
+    pub(crate) fn new(config: std::sync::Arc<tokio::sync::RwLock<AppConfig>>) -> Self {
+        Self(config)
+    }
+    pub(crate) async fn authenticate(&self, token: &str) -> Option<PluginIdentity> {
+        super::plugins::authenticate(&self.0.read().await.plugins, token)
     }
 }
 

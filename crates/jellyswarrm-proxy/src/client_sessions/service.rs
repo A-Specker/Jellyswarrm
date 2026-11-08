@@ -274,17 +274,23 @@ impl ClientSessionService {
 
     pub(crate) async fn for_user(&self, user_id: &str) -> Vec<ClientSession> {
         let user_id = UserId::new(user_id);
+        self.active(|s| s.user_id == user_id).await
+    }
+
+    /// Every active session, across users. For administrative readers only.
+    pub(crate) async fn all(&self) -> Vec<ClientSession> {
+        self.active(|_| true).await
+    }
+
+    /// Drop expired sessions, then return matches, most recently active first.
+    async fn active(&self, keep: impl Fn(&ClientSession) -> bool) -> Vec<ClientSession> {
         let now = Utc::now();
         let mut entries = self.entries.write().await;
         entries.retain(|id, entry| {
             self.connections.is_connected(id)
                 || now - entry.last_activity < Duration::seconds(SESSION_TTL_SECONDS)
         });
-        let mut result: Vec<_> = entries
-            .values()
-            .filter(|s| s.user_id == user_id)
-            .cloned()
-            .collect();
+        let mut result: Vec<_> = entries.values().filter(|s| keep(s)).cloned().collect();
         result.sort_by(|a, b| b.last_activity.cmp(&a.last_activity).then(a.id.cmp(&b.id)));
         result
     }

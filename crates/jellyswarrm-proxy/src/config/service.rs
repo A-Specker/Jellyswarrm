@@ -130,9 +130,9 @@ impl ConfigurationService {
             if previous.startup_config() != next.startup_config() {
                 return Err(ConfigurationError::StartupChanged);
             }
-            current
-                .blocking_write()
-                .publish_runtime_settings(next.runtime_settings());
+            let mut current = current.blocking_write();
+            current.publish_runtime_settings(next.runtime_settings());
+            current.plugins = next.plugins;
             Ok(())
         })
         .await
@@ -342,6 +342,32 @@ mod tests {
         assert!(matches!(result, Err(ConfigurationError::StartupChanged)));
         assert_eq!(current.read().await.server_name, initial.server_name);
         assert_eq!(current.read().await.port, initial.port);
+    }
+
+    #[tokio::test]
+    async fn reload_publishes_plugin_registrations_without_restart() {
+        use crate::config::plugins::{PluginConfig, PluginScope};
+        const TOKEN: &str = "reloaded-plugin-token-0123456789a";
+        let initial = AppConfig::default();
+        let current = Arc::new(RwLock::new(initial.clone()));
+        let credentials = crate::config::PluginCredentials::new(current.clone());
+        let service = ConfigurationService::new(current.clone(), super::super::Paths::temporary());
+        assert_eq!(credentials.authenticate(TOKEN).await, None);
+        service
+            .reload_with(move |_| {
+                let mut next = initial;
+                next.plugins = vec![PluginConfig {
+                    name: "viewer".into(),
+                    token: TOKEN.into(),
+                    scopes: vec![PluginScope::SessionsRead],
+                    enabled: true,
+                }];
+                Ok(next)
+            })
+            .await
+            .unwrap();
+        let plugin = credentials.authenticate(TOKEN).await.unwrap();
+        assert!(plugin.allows(PluginScope::SessionsRead));
     }
 
     #[tokio::test]

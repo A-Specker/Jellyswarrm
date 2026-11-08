@@ -1,10 +1,12 @@
 //! Load and validate process configuration and persisted secrets at explicit paths.
 mod paths;
+pub(crate) mod plugins;
 pub(crate) mod service;
 pub(crate) use paths::Paths;
 mod snapshots;
 use serde::{Deserialize, Serialize};
 pub(crate) use snapshots::AdminCredentials;
+pub(crate) use snapshots::PluginCredentials;
 pub(crate) use snapshots::SettingsView;
 pub(crate) use snapshots::StartupConfig;
 
@@ -262,6 +264,10 @@ pub(crate) struct AppConfig {
     #[serde(default)]
     pub(crate) preconfigured_servers: Vec<PreconfiguredServer>,
 
+    /// Plugins allowed to call the plugin API. Reloaded at runtime.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) plugins: Vec<plugins::PluginConfig>,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) debug_user: Option<DebugUser>,
 
@@ -328,6 +334,7 @@ impl Default for AppConfig {
             username: default_username(),
             password: default_password(),
             preconfigured_servers: Vec::new(),
+            plugins: Vec::new(),
             debug_user: None,
             session_key: default_session_key(),
             timeout: default_timeout(),
@@ -358,6 +365,7 @@ impl fmt::Debug for AppConfig {
             .field("username", &self.username)
             .field("password", &self.password)
             .field("preconfigured_servers", &self.preconfigured_servers)
+            .field("plugins", &self.plugins)
             .field("debug_user", &self.debug_user)
             .field("session_key", &session_key)
             .field("timeout", &self.timeout)
@@ -427,6 +435,7 @@ pub(crate) fn load_config_with_session_key(
         config.session_key.len() >= 64,
         "session_key must contain at least 64 bytes"
     );
+    plugins::validate(&config.plugins)?;
 
     // An older config may omit this field. Never use a freshly generated
     // key for durable credentials without persisting it first.

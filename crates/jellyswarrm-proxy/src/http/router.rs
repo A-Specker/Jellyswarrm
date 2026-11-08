@@ -45,6 +45,7 @@ pub(crate) fn build_router(
     let auth_layer = AuthManagerLayerBuilder::new(backend, session_layer).build();
 
     let app = routes()
+        .merge(super::plugin_api::router())
         .nest(&format!("/{}", startup.ui_route), crate::ui::ui_routes())
         .layer(
             ServiceBuilder::new()

@@ -125,6 +125,13 @@ impl AdapterFixture {
             self.management.clone(),
             settings,
             self.quick_connect.clone(),
+            application::plugins::PluginQueries::new(
+                crate::config::PluginCredentials::new(self.config.clone()),
+                self.server_storage.clone(),
+                self.user_authorization.clone(),
+                self.client_sessions.clone(),
+                self.virtual_library_service.clone(),
+            ),
         )
     }
 }

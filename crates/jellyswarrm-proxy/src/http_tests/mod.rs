@@ -55,5 +55,6 @@ use std::sync::Arc;
 use support::{auth, Fixture, Scenario};
 
 mod playlists;
+mod plugin_api;
 
 mod federated;

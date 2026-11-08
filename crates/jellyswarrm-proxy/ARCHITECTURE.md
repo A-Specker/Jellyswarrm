@@ -26,6 +26,7 @@ each tier so you can find all of them by name:
 | Playback | `http/client_routes/` | `application/playback/` | `playback.rs` |
 | Catalog and item details | `http/client_routes/` | `application/catalog/`, `application/details/` | `media/` |
 | Libraries, servers (admin) | `ui/admin/` | `application/admin/` | `libraries/`, `servers/` |
+| Plugin API (read-only, [contract](../../docs/plugin-api.md)) | `http/plugin_api.rs` | `application/plugins.rs` | `config/plugins.rs` (registrations) |
 
 Add a workflow tier only when an operation needs more than one feature service;
 simple reads may go straight from an adapter to feature state. Dependencies point

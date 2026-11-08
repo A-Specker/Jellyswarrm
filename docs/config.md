@@ -31,6 +31,7 @@ The table below lists all available configuration options:
 | `session_key` | *Generated 64-byte key* | `JELLYSWARRM_SESSION_KEY` | Base64-encoded session encryption key. |
 | `timeout` | `20` | `JELLYSWARRM_TIMEOUT` | Request timeout in seconds. |
 | `preconfigured_servers` | `[]` | `JELLYSWARRM_PRECONFIGURED_SERVERS` | Optional list of preconfigured Jellyfin servers (`url`, `name`, `priority`, `media_streaming_mode`). |
+| `plugins` | `[]` | *(TOML only)* | Plugins allowed to call the read-only [plugin API](plugin-api.md) (`name`, `token`, `scopes`, `enabled`). Reloaded without a restart. |
 | `ui_route` | `ui` | `JELLYSWARRM_UI_ROUTE` | URL path segment for accessing the web UI (e.g., `/ui`). |
 | `url_prefix` | *(none)* | `JELLYSWARRM_URL_PREFIX` | Optional URL prefix for all routes (useful for reverse proxy setups). |
 | `server_background_check_interval_secs` | `30` | `JELLYSWARRM_SERVER_BACKGROUND_CHECK_INTERVAL_SECS` | Interval in seconds for background server health checks. |

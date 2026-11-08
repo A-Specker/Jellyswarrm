@@ -9,6 +9,7 @@ pub(crate) mod error;
 pub(crate) mod forwarding;
 pub(crate) mod media_services;
 pub(crate) mod playback;
+pub(crate) mod plugins;
 pub(crate) mod quick_connect;
 pub(crate) mod request;
 pub(crate) mod syncplay;

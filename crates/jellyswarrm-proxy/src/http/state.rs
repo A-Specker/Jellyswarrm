@@ -8,6 +8,7 @@ use crate::{
         },
         client_sessions::SessionOperations,
         media_services::MediaServices,
+        plugins::PluginQueries,
         syncplay::SyncPlayOperations,
     },
     auth::{
@@ -30,10 +31,12 @@ pub(crate) struct AppState {
     management: ManagementState,
     settings: SettingsState,
     quick_connect: crate::auth::quick_connect::QuickConnectStorage,
+    plugins: PluginQueries,
     paths: AdapterPaths,
 }
 
 impl AppState {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         media: MediaServices,
         sessions: SessionOperations,
@@ -42,6 +45,7 @@ impl AppState {
         management: ManagementState,
         settings: SettingsState,
         quick_connect: crate::auth::quick_connect::QuickConnectStorage,
+        plugins: PluginQueries,
     ) -> Self {
         let paths = management.paths.clone();
         Self {
@@ -52,6 +56,7 @@ impl AppState {
             management,
             settings,
             quick_connect,
+            plugins,
             paths,
         }
     }
