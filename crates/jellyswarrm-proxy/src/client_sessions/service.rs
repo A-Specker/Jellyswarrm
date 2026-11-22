@@ -289,6 +289,21 @@ impl ClientSessionService {
         result
     }
 
+    // fork(viewer): fork-only, used by the admin viewer.
+    /// Every active session across all users, most recently active first.
+    /// For administrative readers only.
+    pub(crate) async fn all(&self) -> Vec<ClientSession> {
+        let now = Utc::now();
+        let mut entries = self.entries.write().await;
+        entries.retain(|id, entry| {
+            self.connections.is_connected(id)
+                || now - entry.last_activity < Duration::seconds(SESSION_TTL_SECONDS)
+        });
+        let mut result: Vec<_> = entries.values().cloned().collect();
+        result.sort_by(|a, b| b.last_activity.cmp(&a.last_activity).then(a.id.cmp(&b.id)));
+        result
+    }
+
     pub(crate) async fn capabilities(&self, id: &str, capabilities: Capabilities) -> Option<()> {
         self.entries.write().await.get_mut(id)?.capabilities = capabilities;
         Some(())

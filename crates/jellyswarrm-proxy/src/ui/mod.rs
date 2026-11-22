@@ -22,6 +22,7 @@ pub(crate) mod release_status;
 pub(crate) mod root;
 pub(crate) mod server_status;
 pub(crate) mod user;
+mod viewer; // fork(viewer)
 pub(crate) use auth::Backend;
 
 #[derive(RustEmbed)]
@@ -119,6 +120,7 @@ pub(crate) fn ui_routes() -> axum::Router<AppState> {
         .route("/settings/form", get(admin::settings::settings_form))
         .route("/settings/save", post(admin::settings::save_settings))
         .route("/settings/reload", post(admin::settings::reload_config))
+        .merge(viewer::routes()) // fork(viewer)
         .route_layer(middleware::from_fn(require_admin));
 
     Router::new()
