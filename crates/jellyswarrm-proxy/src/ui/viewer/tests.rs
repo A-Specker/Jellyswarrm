@@ -204,3 +204,91 @@ async fn only_admins_can_open_the_viewer() {
     assert_ne!(response.status(), HttpStatus::OK);
     assert!(!response.text().await.unwrap().contains("Pilot"));
 }
+
+#[test]
+fn api_needs_a_configured_key_sent_as_bearer() {
+    let header = |value: &str| HeaderValue::from_str(value).unwrap();
+    let key = Some("0123456789abcdef");
+    assert_eq!(
+        authorize(None, Some(&header("Bearer x"))),
+        Err(StatusCode::NOT_FOUND)
+    );
+    assert_eq!(authorize(Some("  "), None), Err(StatusCode::NOT_FOUND));
+    assert_eq!(authorize(key, None), Err(StatusCode::UNAUTHORIZED));
+    for wrong in [
+        "0123456789abcdef",
+        "Bearer 0123456789abcdeX",
+        "Bearer 0123456789abcde",
+        "Basic 0123456789abcdef",
+    ] {
+        assert_eq!(
+            authorize(key, Some(&header(wrong))),
+            Err(StatusCode::UNAUTHORIZED),
+            "{wrong}"
+        );
+    }
+    assert_eq!(
+        authorize(key, Some(&header("Bearer 0123456789abcdef"))),
+        Ok(())
+    );
+}
+
+/// The only test that touches `JELLYSWARRM_VIEWER_API_KEY`, so it can set and
+/// remove it without racing other tests.
+#[tokio::test]
+async fn api_serves_json_with_the_key_and_opens_nothing_else() {
+    let f = Fixture::new().await;
+    sessions(&f, &f.state.sessions.sessions).await;
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let request = |path: &str, key: Option<&str>| {
+        let mut request = client.get(format!("{}/ui{path}", f.url));
+        if let Some(key) = key {
+            request = request.bearer_auth(key);
+        }
+        request.send()
+    };
+    let key = "test-viewer-api-key-0123456789";
+
+    std::env::remove_var(API_KEY_ENV);
+    let response = request("/viewer/now-playing", Some(key)).await.unwrap();
+    assert_eq!(response.status(), HttpStatus::NOT_FOUND);
+
+    std::env::set_var(API_KEY_ENV, key);
+    let response = request("/viewer/now-playing", None).await.unwrap();
+    assert_eq!(response.status(), HttpStatus::UNAUTHORIZED);
+    // An admin login is not a key.
+    let admin = ui_login(&f, "admin", "jellyswarrm").await;
+    let response = get(&f, "/viewer/now-playing", Some(&admin)).await;
+    assert_eq!(response.status(), HttpStatus::UNAUTHORIZED);
+
+    let response = request("/viewer/now-playing", Some(key)).await.unwrap();
+    assert_eq!(response.status(), HttpStatus::OK);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(
+        body,
+        json!({
+            "count": 1,
+            "idle": 1,
+            "playbacks": [{
+                "user": "alice",
+                "title": "Show",
+                "subtitle": "S01E02 · Pilot",
+                "device": "Living room",
+                "client": "Jellyfin for Android TV 0.20.0",
+                "position": "30:00 / 1:00:00",
+                "percent": 50,
+                "paused": true
+            }]
+        })
+    );
+
+    // The key does not open the admin UI.
+    for path in ["/viewer/list", "/viewer", "/users/list"] {
+        let response = request(path, Some(key)).await.unwrap();
+        assert_ne!(response.status(), HttpStatus::OK, "{path}");
+    }
+    std::env::remove_var(API_KEY_ENV);
+}

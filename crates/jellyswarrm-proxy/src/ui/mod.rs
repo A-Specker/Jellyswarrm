@@ -176,5 +176,6 @@ pub(crate) fn ui_routes() -> axum::Router<AppState> {
         .merge(admin_routes)
         .route_layer(login_required!(Backend, login_url = "/ui/login"))
         .route("/resources/{*path}", get(resource_handler))
+        .merge(viewer::public_routes()) // fork(viewer)
         .merge(auth::router())
 }
