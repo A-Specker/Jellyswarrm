@@ -5,15 +5,21 @@
 //! upstream files it touches are marked with `fork(viewer)`:
 //! `ui/mod.rs` (routes), `templates/admin/index.html` (tab) and
 //! `client_sessions/service.rs` (`all()`).
+//!
+//! The same data is available as JSON for other apps (e.g. Home Assistant) at
+//! `GET /ui/viewer/now-playing` with `Authorization: Bearer <key>`, where the
+//! key comes from `JELLYSWARRM_VIEWER_API_KEY`. Without that variable the
+//! endpoint does not exist (404). The key opens nothing else.
 use askama::Template;
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{header::AUTHORIZATION, HeaderMap, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::get,
-    Router,
+    Json, Router,
 };
 use chrono::{DateTime, Duration, Utc};
+use serde::Serialize;
 use serde_json::Value;
 use tracing::error;
 
@@ -30,12 +36,19 @@ mod tests;
 /// this long is treated as ended.
 const STALE_AFTER_SECONDS: i64 = 60;
 const TICKS_PER_SECOND: i64 = 10_000_000;
+/// Env var holding the key for the JSON endpoint. Unset disables it.
+const API_KEY_ENV: &str = "JELLYSWARRM_VIEWER_API_KEY";
 
 /// Admin-only routes, merged into the admin router before `require_admin`.
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route("/viewer", get(page))
         .route("/viewer/list", get(list))
+}
+
+/// Routes outside the UI login, authorized by the viewer API key instead.
+pub(crate) fn public_routes() -> Router<AppState> {
+    Router::new().route("/viewer/now-playing", get(api))
 }
 
 #[derive(Template)]
@@ -51,8 +64,17 @@ struct ListTemplate {
     idle: usize,
 }
 
+/// JSON body of the API: an object, because Home Assistant's REST sensor
+/// reads attributes only from an object.
+#[derive(Serialize)]
+struct NowPlayingJson {
+    count: usize,
+    idle: usize,
+    playbacks: Vec<Playback>,
+}
+
 /// One row of the viewer: display strings only, never tokens or IDs.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize)]
 pub(crate) struct Playback {
     pub(crate) user: String,
     pub(crate) title: String,
@@ -74,6 +96,43 @@ async fn list(State(state): State<ManagementState>) -> Response {
     let sessions = state.sessions.sessions.all().await;
     let (playbacks, idle) = now_playing(&sessions, Utc::now());
     render(ListTemplate { playbacks, idle })
+}
+
+async fn api(State(state): State<ManagementState>, headers: HeaderMap) -> Response {
+    let key = std::env::var(API_KEY_ENV).ok();
+    if let Err(status) = authorize(key.as_deref(), headers.get(AUTHORIZATION)) {
+        return status.into_response();
+    }
+    let sessions = state.sessions.sessions.all().await;
+    let (playbacks, idle) = now_playing(&sessions, Utc::now());
+    Json(NowPlayingJson {
+        count: playbacks.len(),
+        idle,
+        playbacks,
+    })
+    .into_response()
+}
+
+/// 404 while no key is configured, 401 unless the request carries
+/// `Authorization: Bearer <key>`.
+pub(crate) fn authorize(key: Option<&str>, header: Option<&HeaderValue>) -> Result<(), StatusCode> {
+    let key = key.map(str::trim).filter(|key| !key.is_empty());
+    let key = key.ok_or(StatusCode::NOT_FOUND)?;
+    let given = header
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    if same(given.trim().as_bytes(), key.as_bytes()) {
+        Ok(())
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
+}
+
+/// Compare without stopping at the first difference, so response time does not
+/// reveal how much of a guessed key is right.
+fn same(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0, |diff, (x, y)| diff | (x ^ y)) == 0
 }
 
 fn render(template: impl Template) -> Response {
