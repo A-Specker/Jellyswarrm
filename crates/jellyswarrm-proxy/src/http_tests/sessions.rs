@@ -550,6 +550,7 @@ async fn telemetry_still_reaches_its_media_backend_and_updates_local_state() {
     let snapshot = f.state.client_sessions.get(&id).await.unwrap();
     assert_eq!(snapshot.now_playing["Id"], item.as_str());
     assert_eq!(snapshot.play_state["PositionTicks"], 12);
+    assert_eq!(snapshot.playback_server.as_deref(), Some("Server 0")); // fork(viewer)
     let requests = f.upstreams[0].received_requests().await.unwrap();
     let report = requests.iter().find(|r| r.method == "POST").unwrap();
     let payload: Value = serde_json::from_slice(&report.body).unwrap();

@@ -41,6 +41,7 @@ async fn sessions(f: &Fixture, service: &ClientSessionService) -> String {
             &json!({"ItemId": "episode-1", "PositionTicks": HOUR / 2, "IsPaused": true}),
         )
         .await;
+    service.playback_server(&id, "Server A").await;
     let web = device("Jellyfin Web", "Firefox", "web");
     service.ensure(&f.other, "bob-token", Some(&web)).await;
     id
@@ -62,6 +63,7 @@ async fn lists_playbacks_with_readable_names_and_counts_idle_clients() {
             subtitle: "S01E02 · Pilot".into(),
             device: "Living room".into(),
             client: "Jellyfin for Android TV 0.20.0".into(),
+            server: "Server A".into(),
             position: "30:00 / 1:00:00".into(),
             percent: 50,
             paused: true,
@@ -128,6 +130,7 @@ fn escapes_client_supplied_names() {
             subtitle: String::new(),
             device: "<img src=x>".into(),
             client: "Web".into(),
+            server: "<b>srv</b>".into(),
             position: String::new(),
             percent: 0,
             paused: false,
@@ -140,6 +143,7 @@ fn escapes_client_supplied_names() {
     assert!(html.contains("alert(1)"));
     assert!(!html.contains("<script>"));
     assert!(!html.contains("<img"));
+    assert!(!html.contains("<b>srv"));
 }
 
 /// Log into the management UI and return the session cookie.
@@ -187,6 +191,7 @@ async fn only_admins_can_open_the_viewer() {
     assert_eq!(response.status(), HttpStatus::OK);
     let html = response.text().await.unwrap();
     assert!(html.contains("S01E02 · Pilot"), "{html}");
+    assert!(html.contains("Server A"), "{html}");
     assert!(!html.contains("alice-token"));
 
     let page = get(&f, "/viewer", Some(&admin)).await;
@@ -278,6 +283,7 @@ async fn api_serves_json_with_the_key_and_opens_nothing_else() {
                 "subtitle": "S01E02 · Pilot",
                 "device": "Living room",
                 "client": "Jellyfin for Android TV 0.20.0",
+                "server": "Server A",
                 "position": "30:00 / 1:00:00",
                 "percent": 50,
                 "paused": true
