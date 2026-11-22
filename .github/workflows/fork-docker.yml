@@ -1,0 +1,201 @@
+# fork(docker): fork-only workflow, never send upstream.
+#
+# Builds the Jellyswarrm image and pushes it to ghcr.io/<owner>/<repo>.
+# Runs ONLY when started by hand (Actions tab -> "Fork Docker Image" -> Run workflow).
+# Pushes, pull requests and merges never trigger it.
+#
+# Tags produced:
+#   sha-<short>   always
+#   latest        when run on the default branch (main)
+#   <branch>      when run on any other branch
+#   <tag input>   when the optional "tag" input is filled in
+#
+# Upstream's docker.yml must be disabled in the Actions UI of the fork,
+# otherwise it also publishes on every push to main.
+
+name: Fork Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: Platforms to build
+        type: choice
+        default: linux/amd64
+        options:
+          - linux/amd64
+          - linux/arm64
+          - linux/amd64,linux/arm64
+      tag:
+        description: "Optional extra tag, e.g. test or 2026-11-22 (letters, digits, . _ -)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-docker-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.vars.outputs.image }}
+      matrix: ${{ steps.vars.outputs.matrix }}
+      tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - name: Compute image name, build matrix and extra tag
+        id: vars
+        env:
+          REPO: ${{ github.repository }}
+          PLATFORMS: ${{ inputs.platforms }}
+          EXTRA_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "$EXTRA_TAG" ] && ! [[ "$EXTRA_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "::error::Invalid tag '$EXTRA_TAG'. Allowed: letters, digits, '.', '_', '-' (max 128, not starting with '.' or '-')."
+            exit 1
+          fi
+          matrix=$(jq -cn --arg p "$PLATFORMS" '{include: [
+            $p | split(",")[] | {
+              platform: .,
+              runner: (if . == "linux/arm64" then "ubuntu-24.04-arm" else "ubuntu-latest" end),
+              suffix: sub("/"; "-")
+            }
+          ]}')
+          {
+            echo "image=${REGISTRY}/${REPO,,}"
+            echo "matrix=${matrix}"
+            echo "tag=${EXTRA_TAG}"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ needs.prepare.outputs.image }}
+
+      # Push this platform's image by digest only; the merge job tags the
+      # combined multi-arch manifest.
+      - name: Build and push (${{ matrix.platform }})
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ needs.prepare.outputs.image }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=fork-${{ matrix.suffix }}
+          cache-to: type=gha,scope=fork-${{ matrix.suffix }},mode=max
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST_DIR: ${{ runner.temp }}/digests
+        run: |
+          mkdir -p "$DIGEST_DIR"
+          touch "$DIGEST_DIR/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.suffix }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ needs.prepare.outputs.image }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch,enable=${{ github.ref_name != github.event.repository.default_branch }}
+            type=sha
+            type=raw,value=${{ needs.prepare.outputs.tag }},enable=${{ needs.prepare.outputs.tag != '' }}
+
+      - name: Create multi-arch manifest and push tags
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+        run: |
+          set -euo pipefail
+          tag_args=()
+          while IFS= read -r t; do tag_args+=(-t "$t"); done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          sources=()
+          for d in *; do sources+=("${IMAGE}@sha256:${d}"); done
+          docker buildx imagetools create "${tag_args[@]}" "${sources[@]}"
+
+      - name: Inspect and summarize
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "${IMAGE}:${VERSION}"
+          {
+            echo "### Pushed image"
+            echo
+            echo "Ref: \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA::7}\`"
+            echo
+            jq -r '.tags[] | "- `" + . + "`"' <<< "$DOCKER_METADATA_OUTPUT_JSON"
+          } >> "$GITHUB_STEP_SUMMARY"
