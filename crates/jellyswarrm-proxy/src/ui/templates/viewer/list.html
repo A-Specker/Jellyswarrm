@@ -1,0 +1,45 @@
+{# fork(viewer) #}
+{% if playbacks.is_empty() %}
+    <article>
+        <header><h4>Nobody is watching right now</h4></header>
+        <p>Playbacks appear here as soon as a client reports progress.</p>
+    </article>
+{% else %}
+<table aria-label="Current playbacks">
+    <thead>
+        <tr>
+            <th>User</th>
+            <th>Watching</th>
+            <th>Progress</th>
+            <th>Device</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in playbacks %}
+        <tr>
+            <td style="vertical-align: middle;"><strong>{{ p.user }}</strong></td>
+            <td style="vertical-align: middle;">
+                {{ p.title }}
+                {% if !p.subtitle.is_empty() %}<br><small style="color: var(--pico-muted-color);">{{ p.subtitle }}</small>{% endif %}
+            </td>
+            <td style="vertical-align: middle; min-width: 180px;">
+                {% if p.paused %}
+                <i class="fas fa-pause" title="Paused" style="margin-right: 0.25rem;"></i>
+                {% else %}
+                <i class="fas fa-play" title="Playing" style="margin-right: 0.25rem;"></i>
+                {% endif %}
+                {{ p.position }}
+                <progress value="{{ p.percent }}" max="100" style="margin-bottom: 0;"></progress>
+            </td>
+            <td style="vertical-align: middle;">
+                {{ p.device }}
+                <br><small style="color: var(--pico-muted-color);">{{ p.client }}</small>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+<p><small style="color: var(--pico-muted-color);">
+    {{ idle }} other active client(s) without playback. Updates every 5 seconds.
+</small></p>

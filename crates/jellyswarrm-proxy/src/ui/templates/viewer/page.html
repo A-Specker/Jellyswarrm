@@ -1,0 +1,9 @@
+{# fork(viewer) #}
+<header>
+    <h1>Now playing</h1>
+    <h3>Who is watching what right now, across all servers.</h3>
+</header>
+
+<section id="viewer-list" hx-get="/{{ ui_route }}/viewer/list" hx-trigger="load, every 5s">
+    <p>Loading playbacks...</p>
+</section>
