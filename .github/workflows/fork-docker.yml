@@ -4,11 +4,10 @@
 # Runs ONLY when started by hand (Actions tab -> "Fork Docker Image" -> Run workflow).
 # Pushes, pull requests and merges never trigger it.
 #
-# Tags produced:
-#   sha-<short>   always
-#   latest        when run on the default branch (main)
-#   <branch>      when run on any other branch
-#   <tag input>   when the optional "tag" input is filled in
+# Tags produced (branch name with anything but [A-Za-z0-9_.-] replaced by '-'):
+#   <branch>                       always; moves to the newest build of that branch
+#   <branch>-<YYYYMMDD>-<short>    always; unique per build, e.g. main-20261122-341bb35
+#   <tag input>                    when the optional "tag" input is filled in
 #
 # Upstream's docker.yml must be disabled in the Actions UI of the fork,
 # otherwise it also publishes on every push to main.
@@ -49,8 +48,10 @@ jobs:
       image: ${{ steps.vars.outputs.image }}
       matrix: ${{ steps.vars.outputs.matrix }}
       tag: ${{ steps.vars.outputs.tag }}
+      branch_tag: ${{ steps.vars.outputs.branch_tag }}
+      build_tag: ${{ steps.vars.outputs.build_tag }}
     steps:
-      - name: Compute image name, build matrix and extra tag
+      - name: Compute image name, build matrix and tags
         id: vars
         env:
           REPO: ${{ github.repository }}
@@ -58,8 +59,15 @@ jobs:
           EXTRA_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          if [ -n "$EXTRA_TAG" ] && ! [[ "$EXTRA_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+          valid='^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'
+          if [ -n "$EXTRA_TAG" ] && ! [[ "$EXTRA_TAG" =~ $valid ]]; then
             echo "::error::Invalid tag '$EXTRA_TAG'. Allowed: letters, digits, '.', '_', '-' (max 128, not starting with '.' or '-')."
+            exit 1
+          fi
+          branch_tag="${GITHUB_REF_NAME//[^A-Za-z0-9_.-]/-}"
+          build_tag="${branch_tag:0:100}-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          if ! [[ "$branch_tag" =~ $valid ]]; then
+            echo "::error::Ref '$GITHUB_REF_NAME' does not give a valid image tag ('$branch_tag')."
             exit 1
           fi
           matrix=$(jq -cn --arg p "$PLATFORMS" '{include: [
@@ -73,6 +81,8 @@ jobs:
             echo "image=${REGISTRY}/${REPO,,}"
             echo "matrix=${matrix}"
             echo "tag=${EXTRA_TAG}"
+            echo "branch_tag=${branch_tag}"
+            echo "build_tag=${build_tag}"
           } >> "$GITHUB_OUTPUT"
 
   build:
@@ -168,9 +178,8 @@ jobs:
         with:
           images: ${{ needs.prepare.outputs.image }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch,enable=${{ github.ref_name != github.event.repository.default_branch }}
-            type=sha
+            type=raw,value=${{ needs.prepare.outputs.branch_tag }}
+            type=raw,value=${{ needs.prepare.outputs.build_tag }}
             type=raw,value=${{ needs.prepare.outputs.tag }},enable=${{ needs.prepare.outputs.tag != '' }}
 
       - name: Create multi-arch manifest and push tags
@@ -188,7 +197,7 @@ jobs:
       - name: Inspect and summarize
         env:
           IMAGE: ${{ needs.prepare.outputs.image }}
-          VERSION: ${{ steps.meta.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.build_tag }}
         run: |
           set -euo pipefail
           docker buildx imagetools inspect "${IMAGE}:${VERSION}"
