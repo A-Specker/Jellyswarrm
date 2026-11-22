@@ -289,7 +289,7 @@ impl ClientSessionService {
         result
     }
 
-    // fork(viewer): candidate for an upstream PR.
+    // fork(viewer): fork-only, used by the admin viewer.
     /// Every active session across all users, most recently active first.
     /// For administrative readers only.
     pub(crate) async fn all(&self) -> Vec<ClientSession> {
