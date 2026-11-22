@@ -12,6 +12,7 @@
             <th>Watching</th>
             <th>Progress</th>
             <th>Device</th>
+            <th>Server</th>
         </tr>
     </thead>
     <tbody>
@@ -35,6 +36,7 @@
                 {{ p.device }}
                 <br><small style="color: var(--pico-muted-color);">{{ p.client }}</small>
             </td>
+            <td style="vertical-align: middle;">{% if p.server.is_empty() %}–{% else %}{{ p.server }}{% endif %}</td>
         </tr>
         {% endfor %}
     </tbody>

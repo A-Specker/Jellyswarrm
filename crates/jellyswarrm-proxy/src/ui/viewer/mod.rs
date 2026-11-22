@@ -81,6 +81,8 @@ pub(crate) struct Playback {
     pub(crate) subtitle: String,
     pub(crate) device: String,
     pub(crate) client: String,
+    /// Backend server streaming the item; empty until its first report.
+    pub(crate) server: String,
     pub(crate) position: String,
     pub(crate) percent: u8,
     pub(crate) paused: bool,
@@ -188,6 +190,7 @@ fn playback(session: &ClientSession) -> Playback {
         )
         .trim()
         .to_string(),
+        server: session.playback_server.clone().unwrap_or_default(),
         position,
         percent,
         paused: session.play_state["IsPaused"].as_bool().unwrap_or(false),

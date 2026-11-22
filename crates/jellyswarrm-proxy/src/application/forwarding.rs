@@ -341,6 +341,10 @@ async fn observe_success(state: &MediaServices, prepared: &PreparedForward, is_m
         .client_sessions
         .report(&client_session, stopped, &report.body)
         .await;
+    state // fork(viewer)
+        .client_sessions // fork(viewer)
+        .playback_server(&client_session, &prepared.target.server().name) // fork(viewer)
+        .await; // fork(viewer)
     if stopped {
         return;
     }

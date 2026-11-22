@@ -1,5 +1,6 @@
 //! Maintain proxy-owned client presence, device metadata, playback state, and remote control.
 use super::{connections::ConnectionHub, models::Capabilities};
+use crate::domain::ids::normalize_media_id; // fork(session-metadata)
 use crate::domain::ids::ServerId;
 use crate::domain::user_id::UserId;
 use crate::{auth::service::LocalUser, protocol::device::Device};
@@ -28,6 +29,7 @@ pub(crate) struct ClientSession {
     pub(crate) queue: Value,
     pub(crate) last_playback: Option<DateTime<Utc>>,
     episode_server: Option<EpisodeServerPreference>,
+    pub(crate) playback_server: Option<String>, // fork(viewer): name of the backend serving the playback
 }
 
 #[derive(Clone)]
@@ -95,7 +97,12 @@ impl ClientSessionService {
                         object.get("Id").and_then(Value::as_str),
                         object.get("Name").and_then(Value::as_str),
                     ) {
-                        if object.contains_key("Type") || object.contains_key("MediaType") {
+                        // fork(session-metadata): media sources share their item's ID but
+                        // carry the file name; caching them would replace the item.
+                        let media_source = object.contains_key("Protocol"); // fork(session-metadata)
+                        if !media_source // fork(session-metadata)
+                            && (object.contains_key("Type") || object.contains_key("MediaType"))
+                        {
                             let mut metadata = serde_json::Map::new();
                             for key in [
                                 "Id",
@@ -123,7 +130,7 @@ impl ClientSessionService {
                             let metadata = Value::Object(metadata);
                             if metadata.to_string().len() <= 16 * 1024 {
                                 self.media_metadata
-                                    .insert((token.to_string(), id.to_string()), metadata)
+                                    .insert((token.to_string(), normalize_media_id(id)), metadata) // fork(session-metadata)
                                     .await;
                                 retained += 1;
                             }
@@ -139,9 +146,10 @@ impl ClientSessionService {
         }
     }
 
+    /// Clients send IDs dashed or undashed; both find the same entry.
     pub(crate) async fn media_metadata(&self, token: &str, item_id: &str) -> Option<Value> {
         self.media_metadata
-            .get(&(token.to_string(), item_id.to_string()))
+            .get(&(token.to_string(), normalize_media_id(item_id))) // fork(session-metadata)
             .await
     }
 
@@ -237,6 +245,7 @@ impl ClientSessionService {
                 queue: json!([]),
                 last_playback: None,
                 episode_server: None,
+                playback_server: None, // fork(viewer)
             },
         );
         id
@@ -304,6 +313,14 @@ impl ClientSessionService {
         result
     }
 
+    // fork(viewer): fork-only, used by the admin viewer.
+    /// Remember the backend that accepted the session's latest playback report.
+    pub(crate) async fn playback_server(&self, id: &str, server_name: &str) {
+        if let Some(s) = self.entries.write().await.get_mut(id) {
+            s.playback_server = Some(server_name.to_string());
+        }
+    }
+
     pub(crate) async fn capabilities(&self, id: &str, capabilities: Capabilities) -> Option<()> {
         self.entries.write().await.get_mut(id)?.capabilities = capabilities;
         Some(())
@@ -356,16 +373,21 @@ impl ClientSessionService {
         let Some(item_id) = field("ItemId").and_then(Value::as_str) else {
             return;
         };
+        // fork(session-metadata): the cached item's ID may differ in format from the report's.
+        let playing = s.now_playing["Id"].as_str().map(normalize_media_id) // fork(session-metadata)
+            == Some(normalize_media_id(item_id)); // fork(session-metadata)
         if stopped {
             // Ignore a late stop for the previous item after a new playback has begun.
-            if s.now_playing["Id"].as_str() == Some(item_id) {
+            if playing {
+                // fork(session-metadata)
                 s.now_playing = Value::Null;
                 s.queue = json!([]);
                 s.play_state = empty_play_state();
             }
             return;
         }
-        if s.now_playing["Id"].as_str() != Some(item_id) {
+        if !playing {
+            // fork(session-metadata)
             s.now_playing = metadata.clone().unwrap_or_else(|| json!({"Id": item_id}));
             s.play_state = empty_play_state();
         }
@@ -540,5 +562,53 @@ mod tests {
             service.get(&id).await.unwrap().now_playing["Id"],
             "new-item"
         );
+    }
+
+    // fork(session-metadata): Android TV (Kotlin SDK) reports dashed UUIDs.
+    #[tokio::test]
+    async fn dashed_item_ids_find_metadata_and_stop_the_playback() {
+        let service = ClientSessionService::new(ConnectionHub::default());
+        let id = service.ensure(&user(), "secret", None).await;
+        let item = Uuid::new_v4();
+        let simple = item.simple().to_string();
+        let dashed = item.hyphenated().to_string().to_uppercase();
+        service
+            .cache_media_response(
+                "secret",
+                &json!({"Id": simple, "Name":"Pilot", "Type":"Episode"}),
+            )
+            .await;
+        service
+            .report(&id, false, &json!({"ItemId": dashed, "PositionTicks": 1}))
+            .await;
+        service
+            .report(&id, false, &json!({"ItemId": dashed, "PositionTicks": 2}))
+            .await;
+        let current = service.get(&id).await.unwrap();
+        assert_eq!(current.now_playing["Name"], "Pilot");
+        assert_eq!(current.play_state["PositionTicks"], 2);
+        service.report(&id, true, &json!({"ItemId": dashed})).await;
+        assert!(service.get(&id).await.unwrap().now_playing.is_null());
+    }
+
+    // fork(session-metadata): a media source shares its item's ID but names the file.
+    #[tokio::test]
+    async fn media_sources_do_not_replace_item_metadata() {
+        let service = ClientSessionService::new(ConnectionHub::default());
+        service
+            .cache_media_response(
+                "secret",
+                &json!({
+                    "Id": "item", "Name": "Pilot", "Type": "Episode", "SeriesName": "Show",
+                    "MediaSources": [{
+                        "Id": "item", "Name": "Show.S01E01.1080p", "Type": "Default",
+                        "Protocol": "File", "RunTimeTicks": 1
+                    }]
+                }),
+            )
+            .await;
+        let cached = service.media_metadata("secret", "item").await.unwrap();
+        assert_eq!(cached["Name"], "Pilot");
+        assert_eq!(cached["SeriesName"], "Show");
     }
 }
