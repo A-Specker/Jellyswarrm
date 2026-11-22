@@ -1,0 +1,200 @@
+# fork(sync): fork-only workflow, never send upstream.
+#
+# Merges an upstream ref (default: LLukas22/Jellyswarrm main) into a branch of
+# this fork (default: main) and pushes the result. Runs ONLY when started by hand
+# (Actions tab -> "Sync Upstream" -> Run workflow).
+#
+# - Never rebases or force-pushes: origin main = upstream + fork features, synced by merge.
+# - On a merge conflict nothing is pushed; the run summary lists the conflicting
+#   files and the commands to resolve it locally.
+# - Workflow files that upstream newly adds are disabled right after the push,
+#   so nothing in this fork runs automatically. Enable them by hand if wanted.
+#
+# Token: if upstream changed anything under .github/workflows/, GitHub only
+# accepts the push with a personal access token that has the "Workflows"
+# permission. Store it as the repository secret WORKFLOW_PAT
+# (fine-grained, this repo only: Contents, Pull requests, Workflows = read/write).
+
+name: Sync Upstream
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: Upstream branch or tag to merge (from LLukas22/Jellyswarrm)
+        type: string
+        default: main
+      target_branch:
+        description: Branch of this fork to merge into
+        type: string
+        default: main
+      open_pr:
+        description: Open a pull request instead of pushing straight to the target branch
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: fork-sync-upstream
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_URL: https://github.com/LLukas22/Jellyswarrm.git
+  UPSTREAM_REF: ${{ inputs.upstream_ref }}
+  TARGET: ${{ inputs.target_branch }}
+  OPEN_PR: ${{ inputs.open_pr }}
+  HAS_PAT: ${{ secrets.WORKFLOW_PAT != '' }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          for v in "$UPSTREAM_REF" "$TARGET"; do
+            if ! [[ "$v" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || [[ "$v" == *..* ]]; then
+              echo "::error::Invalid ref name '$v'."
+              exit 1
+            fi
+          done
+
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        id: fetch
+        run: |
+          set -euo pipefail
+          git fetch --no-tags "$UPSTREAM_URL" "$UPSTREAM_REF"
+          upstream_sha=$(git rev-parse 'FETCH_HEAD^{commit}')
+          before_sha=$(git rev-parse HEAD)
+          behind=$(git rev-list --count "HEAD..${upstream_sha}")
+          ahead=$(git rev-list --count "${upstream_sha}..HEAD")
+          {
+            echo "upstream_sha=${upstream_sha}"
+            echo "before_sha=${before_sha}"
+            echo "behind=${behind}"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Sync upstream \`${UPSTREAM_REF}\` → \`${TARGET}\`"
+            echo
+            echo "- upstream: \`${upstream_sha::7}\`"
+            echo "- ${TARGET} before: \`${before_sha::7}\`"
+            echo "- ${TARGET} is **${behind}** commits behind and **${ahead}** ahead of upstream"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$behind" -eq 0 ]; then
+            echo "Already up to date, nothing to merge." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Merge
+        id: merge
+        if: steps.fetch.outputs.behind != '0'
+        env:
+          UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
+          BEFORE_SHA: ${{ steps.fetch.outputs.before_sha }}
+        run: |
+          set -euo pipefail
+          if ! git merge --no-ff --no-edit \
+               -m "Merge upstream ${UPSTREAM_REF} (${UPSTREAM_SHA::7}) into ${TARGET}" \
+               "$UPSTREAM_SHA"; then
+            {
+              echo "#### ❌ Merge conflict, nothing was pushed"
+              echo
+              echo "Conflicting files:"
+              git diff --name-only --diff-filter=U | sed 's/^/- `/; s/$/`/'
+              echo
+              echo "Resolve locally (fork lines are marked with \`fork(\`):"
+              echo '```'
+              echo "git fetch upstream"
+              echo "git switch ${TARGET}"
+              echo "git pull --ff-only origin ${TARGET}"
+              echo "git merge upstream/${UPSTREAM_REF}"
+              echo "# fix conflicts, then: git commit && git push origin ${TARGET}"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            git merge --abort
+            echo "::error::Merge conflict with upstream ${UPSTREAM_REF}. See the run summary."
+            exit 1
+          fi
+
+          added=$(git diff --name-only --diff-filter=A "$BEFORE_SHA" HEAD -- .github/workflows | tr '\n' ' ')
+          changed=$(git diff --name-only "$BEFORE_SHA" HEAD -- .github/workflows | tr '\n' ' ')
+          echo "added_workflows=${added}" >> "$GITHUB_OUTPUT"
+
+          if [ -n "$changed" ] && [ "$HAS_PAT" != "true" ]; then
+            echo "::error::Upstream changed workflow files (${changed}). Pushing them needs the WORKFLOW_PAT secret with the Workflows permission."
+            exit 1
+          fi
+
+          {
+            echo "#### Merged upstream commits"
+            echo '```'
+            git log --oneline --no-merges "${BEFORE_SHA}..HEAD" | head -n 100
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Push
+        id: push
+        if: steps.merge.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT || secrets.GITHUB_TOKEN }}
+          UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$OPEN_PR" = "true" ]; then
+            branch="sync/upstream-$(date -u +%Y%m%d)-${UPSTREAM_SHA::7}"
+            git push origin "HEAD:refs/heads/${branch}"
+            url=$(gh pr create --base "$TARGET" --head "$branch" \
+              --title "Sync upstream ${UPSTREAM_REF} (${UPSTREAM_SHA::7})" \
+              --body "Merges upstream \`${UPSTREAM_REF}\` at \`${UPSTREAM_SHA::7}\` into \`${TARGET}\`. Merge with **Create a merge commit**, never squash or rebase.")
+            echo "Opened pull request: ${url}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            git push origin "HEAD:refs/heads/${TARGET}"
+            echo "Pushed \`$(git rev-parse --short HEAD)\` to \`${TARGET}\`." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "pushed_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Workflows upstream newly added are active by default and may already have
+      # been started by the push above. Disable them and cancel those runs.
+      - name: Disable newly added upstream workflows
+        if: steps.push.outcome == 'success' && steps.merge.outputs.added_workflows != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADDED: ${{ steps.merge.outputs.added_workflows }}
+          PUSHED_SHA: ${{ steps.push.outputs.pushed_sha }}
+        run: |
+          set -uo pipefail
+          echo "#### Newly added upstream workflows (disabled)" >> "$GITHUB_STEP_SUMMARY"
+          for path in $ADDED; do
+            file=$(basename "$path")
+            ok=false
+            # GitHub needs a few seconds to register a newly pushed workflow.
+            for _ in $(seq 1 12); do
+              if gh workflow disable "$file" -R "$GITHUB_REPOSITORY" 2>/dev/null; then ok=true; break; fi
+              sleep 5
+            done
+            for id in $(gh run list -R "$GITHUB_REPOSITORY" --workflow "$file" --commit "$PUSHED_SHA" --json databaseId -q '.[].databaseId' 2>/dev/null); do
+              gh run cancel "$id" -R "$GITHUB_REPOSITORY" || true
+            done
+            if $ok; then
+              echo "- \`${path}\`: disabled" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- \`${path}\`: ⚠️ could not disable, do it in the Actions tab" >> "$GITHUB_STEP_SUMMARY"
+              echo "::warning::Could not disable ${path}; disable it in the Actions tab."
+            fi
+          done
